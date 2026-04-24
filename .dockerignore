@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+frontend/node_modules
+frontend/.next
+**/__pycache__
+**/.pytest_cache

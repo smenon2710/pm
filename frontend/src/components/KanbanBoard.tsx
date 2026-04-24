@@ -15,9 +15,24 @@ import { KanbanColumn } from "@/components/KanbanColumn";
 import { KanbanCardPreview } from "@/components/KanbanCardPreview";
 import { createId, initialData, moveCard, type BoardData } from "@/lib/kanban";
 
-export const KanbanBoard = () => {
-  const [board, setBoard] = useState<BoardData>(() => initialData);
+type KanbanBoardProps = {
+  board?: BoardData;
+  onBoardChange?: (board: BoardData) => void;
+};
+
+export const KanbanBoard = ({ board: controlledBoard, onBoardChange }: KanbanBoardProps) => {
+  const [internalBoard, setInternalBoard] = useState<BoardData>(() => initialData);
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
+
+  const board = controlledBoard ?? internalBoard;
+
+  const setBoard = (updater: (prev: BoardData) => BoardData) => {
+    if (controlledBoard && onBoardChange) {
+      onBoardChange(updater(controlledBoard));
+      return;
+    }
+    setInternalBoard((prev) => updater(prev));
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
