@@ -1,10 +1,39 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
+import { initialData, type BoardData } from "@/lib/kanban";
+
+const makeResponse = (body: unknown, ok = true) =>
+  new Response(JSON.stringify(body), {
+    status: ok ? 200 : 500,
+    headers: { "Content-Type": "application/json" },
+  });
 
 describe("Home auth gate", () => {
+  let boardStore: BoardData;
+  let fetchMock: ReturnType<typeof vi.fn>;
+
   beforeEach(() => {
     window.localStorage.clear();
+    boardStore = structuredClone(initialData);
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/board") && method === "GET") {
+        return makeResponse({ username: "user", board: boardStore });
+      }
+      if (url.includes("/api/board") && method === "PUT") {
+        const payload = JSON.parse(String(init?.body)) as {
+          username: string;
+          board: BoardData;
+        };
+        boardStore = payload.board;
+        return makeResponse({ ok: true });
+      }
+      return makeResponse({ status: "ok" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
   });
 
   it("shows login form when unauthenticated", () => {
@@ -32,8 +61,8 @@ describe("Home auth gate", () => {
     await userEvent.type(screen.getByLabelText("Password"), "password");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(screen.getByRole("button", { name: /log out/i })).toBeInTheDocument();
-    expect(screen.getByText("Kanban Studio")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /log out/i })).toBeInTheDocument();
+    expect(await screen.findByText("Kanban Studio")).toBeInTheDocument();
     expect(window.localStorage.getItem("pm-authenticated")).toBe("true");
 
     await userEvent.click(screen.getByRole("button", { name: /log out/i }));
@@ -49,7 +78,7 @@ describe("Home auth gate", () => {
     await userEvent.type(screen.getByLabelText("Password"), "password");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-    const firstColumnTitle = screen.getAllByLabelText("Column title")[0];
+    const firstColumnTitle = (await screen.findAllByLabelText("Column title"))[0];
     await userEvent.clear(firstColumnTitle);
     await userEvent.type(firstColumnTitle, "Saved Column");
     expect(firstColumnTitle).toHaveValue("Saved Column");
@@ -59,6 +88,7 @@ describe("Home auth gate", () => {
     await userEvent.type(screen.getByLabelText("Password"), "password");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(screen.getAllByLabelText("Column title")[0]).toHaveValue("Saved Column");
+    expect((await screen.findAllByLabelText("Column title"))[0]).toHaveValue("Saved Column");
+    expect(fetchMock).toHaveBeenCalled();
   });
 });

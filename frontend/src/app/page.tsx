@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { KanbanBoard } from "@/components/KanbanBoard";
 import { initialData, type BoardData } from "@/lib/kanban";
 
@@ -14,6 +14,10 @@ export default function Home() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isBoardLoading, setIsBoardLoading] = useState(false);
+  const [boardSyncError, setBoardSyncError] = useState("");
+  const [isBoardReady, setIsBoardReady] = useState(false);
+  const skipNextSave = useRef(false);
 
   useEffect(() => {
     setIsAuthed(window.localStorage.getItem(AUTH_KEY) === "true");
@@ -36,7 +40,75 @@ export default function Home() {
     setUsername("");
     setPassword("");
     setError("");
+    setBoardSyncError("");
+    setIsBoardReady(false);
   };
+
+  useEffect(() => {
+    if (!isAuthed) {
+      return;
+    }
+    let cancelled = false;
+    const loadBoard = async () => {
+      setIsBoardLoading(true);
+      setBoardSyncError("");
+      setIsBoardReady(false);
+      try {
+        const response = await fetch(`/api/board?username=${DEMO_USERNAME}`);
+        if (!response.ok) {
+          throw new Error(`Failed to load board: ${response.status}`);
+        }
+        const data = (await response.json()) as { board?: BoardData };
+        if (!data.board || !Array.isArray(data.board.columns) || !data.board.cards) {
+          throw new Error("Received invalid board payload.");
+        }
+        if (!cancelled) {
+          skipNextSave.current = true;
+          setBoard(data.board);
+          setIsBoardReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setBoardSyncError("Unable to load board from backend.");
+          setIsBoardReady(true);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsBoardLoading(false);
+        }
+      }
+    };
+    void loadBoard();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthed]);
+
+  useEffect(() => {
+    if (!isAuthed || !isBoardReady || isBoardLoading) {
+      return;
+    }
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
+    const persistBoard = async () => {
+      try {
+        const response = await fetch("/api/board", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: DEMO_USERNAME, board }),
+        });
+        if (!response.ok) {
+          throw new Error(`Failed to save board: ${response.status}`);
+        }
+        setBoardSyncError("");
+      } catch {
+        setBoardSyncError("Unable to save board to backend.");
+      }
+    };
+    void persistBoard();
+  }, [board, isAuthed, isBoardReady, isBoardLoading]);
 
   if (!isAuthed) {
     return (
@@ -95,6 +167,16 @@ export default function Home() {
 
   return (
     <>
+      {isBoardLoading ? (
+        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-full bg-white/95 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)] shadow-[var(--shadow)]">
+          Loading board...
+        </div>
+      ) : null}
+      {boardSyncError ? (
+        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-full bg-[var(--accent-yellow)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[var(--navy-dark)] shadow-[var(--shadow)]">
+          {boardSyncError}
+        </div>
+      ) : null}
       <button
         type="button"
         onClick={handleLogout}
