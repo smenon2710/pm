@@ -10,14 +10,14 @@ Guiding principles:
 ## Part 1: Planning and Documentation
 
 ### Checklist
-- [ ] Replace `docs/PLAN.md` with a detailed execution plan (this document).
-- [ ] Create `frontend/AGENTS.md` describing the existing frontend codebase.
-- [ ] Confirm test strategy and phase gates.
-- [ ] Request user approval before moving to Part 2.
+- [x] Replace `docs/PLAN.md` with a detailed execution plan (this document).
+- [x] Create `frontend/AGENTS.md` describing the existing frontend codebase.
+- [x] Confirm test strategy and phase gates.
+- [x] Request user approval before moving to Part 2.
 
 ### Tests
-- [ ] No runtime tests required (docs-only).
-- [ ] Verify document completeness against project requirements.
+- [x] No runtime tests required (docs-only).
+- [x] Verify document completeness against project requirements.
 
 ### Success Criteria
 - Plan includes Parts 1-10, each with checklist, tests, and success criteria.
@@ -27,16 +27,16 @@ Guiding principles:
 ## Part 2: Scaffolding (Docker + FastAPI + Scripts)
 
 ### Checklist
-- [ ] Create `backend/` FastAPI app scaffold.
-- [ ] Add Docker setup to run full app locally in one container.
-- [ ] Add OS-specific start/stop scripts in `scripts/` for Mac, Linux, and Windows.
-- [ ] Serve static hello-world HTML from FastAPI at `/`.
-- [ ] Add one API route (for example `/api/health`) and call it from the page.
+- [x] Create `backend/` FastAPI app scaffold.
+- [x] Add Docker setup to run full app locally in one container.
+- [x] Add OS-specific start/stop scripts in `scripts/` for Mac, Linux, and Windows.
+- [x] Serve static hello-world HTML from FastAPI at `/`.
+- [x] Add one API route (for example `/api/health`) and call it from the page.
 
 ### Tests
-- [ ] Backend unit test for health endpoint.
-- [ ] Manual verification: container starts, `/` renders, API call succeeds.
-- [ ] Script verification on supported OS command format.
+- [x] Backend unit test for health endpoint.
+- [x] Manual verification: container starts, `/` renders, API call succeeds.
+- [x] Script verification on supported OS command format.
 
 ### Success Criteria
 - `docker` build and run works locally.
@@ -47,16 +47,16 @@ Guiding principles:
 ## Part 3: Add Frontend Static Build and Serving
 
 ### Checklist
-- [ ] Build Next.js frontend as static assets.
-- [ ] Configure FastAPI to serve built frontend at `/`.
-- [ ] Preserve backend API routes under `/api/*`.
-- [ ] Confirm Kanban demo appears as home page.
+- [x] Build Next.js frontend as static assets.
+- [x] Configure FastAPI to serve built frontend at `/`.
+- [x] Preserve backend API routes under `/api/*`.
+- [x] Confirm Kanban demo appears as home page.
 
 ### Tests
-- [ ] Frontend unit tests (`vitest`) pass.
-- [ ] Frontend integration/e2e tests (`playwright`) pass.
-- [ ] Backend route tests still pass.
-- [ ] Manual smoke test of `/` and `/api/health`.
+- [x] Frontend unit tests (`vitest`) pass.
+- [x] Frontend integration/e2e tests (`playwright`) pass.
+- [x] Backend route tests still pass.
+- [x] Manual smoke test of `/` and `/api/health`.
 
 ### Success Criteria
 - App root (`/`) shows Kanban demo via backend-served static files.
@@ -66,16 +66,18 @@ Guiding principles:
 ## Part 4: Fake Sign-In Flow
 
 ### Checklist
-- [ ] Add login screen at initial visit.
-- [ ] Accept only hardcoded credentials: `user` / `password`.
-- [ ] Persist signed-in state for session.
-- [ ] Add logout action returning to login screen.
-- [ ] Protect board view so unauthenticated users cannot access it.
+- [x] Add login screen at initial visit.
+- [x] Accept only hardcoded credentials: `user` / `password`.
+- [x] Persist signed-in state for session.
+- [x] Add logout action returning to login screen.
+- [x] Protect board view so unauthenticated users cannot access it.
+- [x] Preserve existing board behavior after login and maintain board state across logout/re-login within the same browser session.
 
 ### Tests
-- [ ] Unit tests for login form validation and auth state changes.
-- [ ] Integration tests for login success/failure and logout.
-- [ ] E2E test: blocked before login, access after login.
+- [x] Unit tests for login form validation and auth state changes.
+- [x] Integration tests for login success/failure and logout.
+- [x] E2E test: blocked before login, access after login.
+- [x] Unit + e2e coverage for state retention across logout/re-login.
 
 ### Success Criteria
 - Only valid dummy credentials unlock the board.
@@ -85,10 +87,10 @@ Guiding principles:
 ## Part 5: Database Modeling (SQLite + JSON payload)
 
 ### Checklist
-- [ ] Propose schema for users, board metadata, and kanban content.
-- [ ] Model board content as JSON stored in SQLite.
-- [ ] Document rationale and tradeoffs in `docs/`.
-- [ ] Request user sign-off before implementing routes.
+- [x] Propose schema for users, board metadata, and kanban content.
+- [x] Model board content as JSON stored in SQLite.
+- [x] Document rationale and tradeoffs in `docs/` (`docs/DB_SCHEMA.md`).
+- [x] Request user sign-off before implementing routes.
 
 ### Tests
 - [ ] Schema validation tests (creation/migration smoke test).
@@ -102,15 +104,15 @@ Guiding principles:
 ## Part 6: Backend Kanban API
 
 ### Checklist
-- [ ] Implement DB initialization on startup if DB file does not exist.
-- [ ] Add API endpoints to read/update kanban board for a user.
-- [ ] Add validation and clear error responses.
-- [ ] Keep API minimal and aligned to frontend needs.
+- [x] Implement DB initialization on startup if DB file does not exist.
+- [x] Add API endpoints to read/update kanban board for a user.
+- [x] Add validation and clear error responses.
+- [x] Keep API minimal and aligned to frontend needs.
 
 ### Tests
-- [ ] Backend unit tests for each route.
-- [ ] DB integration tests for create/read/update board flows.
-- [ ] Negative tests for invalid payloads and missing users.
+- [x] Backend unit tests for each route.
+- [x] DB integration tests for create/read/update board flows.
+- [x] Negative tests for invalid payloads and missing users.
 
 ### Success Criteria
 - Board can be fetched and updated through API.
@@ -120,15 +122,15 @@ Guiding principles:
 ## Part 7: Frontend + Backend Integration
 
 ### Checklist
-- [ ] Replace in-memory board state initialization with backend fetch.
-- [ ] Save board edits via backend API.
-- [ ] Handle loading/error states in simple UX form.
-- [ ] Confirm persistence across page reloads.
+- [x] Replace in-memory board state initialization with backend fetch.
+- [x] Save board edits via backend API.
+- [x] Handle loading/error states in simple UX form.
+- [x] Confirm persistence across page reloads.
 
 ### Tests
-- [ ] Frontend unit tests for API integration logic.
-- [ ] Integration tests with mocked API responses.
-- [ ] E2E test for persistent updates across reload.
+- [x] Frontend unit tests for API integration logic.
+- [x] Integration tests with mocked API responses.
+- [x] E2E test for persistent updates across reload.
 
 ### Success Criteria
 - Board state is truly persistent, not local-only.
@@ -196,8 +198,8 @@ Guiding principles:
 
 ## Phase Gates
 
-- Gate A (required): User approval after Part 1 documentation.
-- Gate B (required): User approval after Part 5 schema proposal.
+- Gate A (required): User approval after Part 1 documentation. (completed)
+- Gate B (required): User approval after Part 5 schema proposal. (completed)
 - Gate C (optional): User checkpoint after Part 8 before structured outputs and full chat UX.
 
 ## Default Test Commands
@@ -205,3 +207,20 @@ Guiding principles:
 - Frontend unit: `npm run test:unit` (from `frontend/`)
 - Frontend e2e: `npm run test:e2e` (from `frontend/`)
 - Backend unit/integration: `pytest` (from `backend/`, once created)
+
+## Implemented Design Decisions (Through Part 7)
+
+- Backend startup uses FastAPI lifespan to initialize SQLite automatically at `data/pm.db` (override supported via `PM_DB_PATH`).
+- DB seeding guarantees default `user` and one seeded board row when missing.
+- Board storage uses full JSON payload replacement (`board_json`) with validation on every update.
+- Board API surface is intentionally minimal for MVP:
+  - `GET /api/board?username=user`
+  - `PUT /api/board` with `{ username, board }`
+- Frontend auth remains hardcoded (`user`/`password`) with local session flag (`pm-authenticated`).
+- Frontend board lifecycle:
+  - load board from backend after login
+  - persist board on edits
+  - show lightweight loading/sync-error badges
+- Frontend and backend are built/run in one Docker image using multi-stage build:
+  - Next.js static export served by FastAPI at `/`
+  - backend APIs remain under `/api/*`
