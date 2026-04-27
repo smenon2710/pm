@@ -180,16 +180,16 @@ Guiding principles:
 ## Part 10: Sidebar AI Chat UX
 
 ### Checklist
-- [ ] Add sidebar chat UI integrated into board page.
-- [ ] Support message history in session.
-- [ ] Call backend AI endpoint for each user message.
-- [ ] Apply returned board updates and refresh UI state immediately.
-- [ ] Keep visual style aligned with project color palette.
+- [x] Add sidebar chat UI integrated into board page.
+- [x] Support message history in session.
+- [x] Call backend AI endpoint for each user message.
+- [x] Apply returned board updates and refresh UI state immediately.
+- [x] Keep visual style aligned with project color palette.
 
 ### Tests
-- [ ] Component tests for sidebar rendering and chat interactions.
-- [ ] Integration tests for request/response and optimistic/confirmed updates.
-- [ ] E2E test covering chat-driven board mutation reflected in UI.
+- [x] Component tests for sidebar rendering and chat interactions.
+- [x] Integration tests for request/response and optimistic/confirmed updates.
+- [x] E2E test covering chat-driven board mutation reflected in UI.
 
 ### Success Criteria
 - Chat sidebar is usable and visually consistent with app.

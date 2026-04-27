@@ -305,3 +305,39 @@ def test_ai_board_rejects_invalid_operation_and_preserves_board(
         assert "is not in" in response.json()["detail"]
         after = client.get("/api/board").json()["board"]
         assert after == before
+
+
+def test_ai_board_accepts_fenced_json_model_output(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    fenced = """```json
+{
+  "assistantMessage": "done",
+  "operations": []
+}
+```"""
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: fenced,
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post("/api/ai/board", json={"username": "user", "message": "hello"})
+        assert response.status_code == 200
+        assert response.json()["assistantMessage"] == "done"
+
+
+def test_ai_board_accepts_json_embedded_in_text(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    embedded = (
+        'Here is the result: {"assistantMessage":"ok","operations":[]} '
+        "Let me know if you need more."
+    )
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: embedded,
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post("/api/ai/board", json={"username": "user", "message": "hello"})
+        assert response.status_code == 200
+        assert response.json()["assistantMessage"] == "ok"

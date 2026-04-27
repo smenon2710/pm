@@ -239,9 +239,24 @@ def request_openrouter_completion(prompt: str, api_key: str, timeout_seconds: fl
         raise RuntimeError("OpenRouter response did not include choices.")
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    if not isinstance(content, str) or not content.strip():
+    text_content = _extract_message_text(content)
+    if not text_content:
         raise RuntimeError("OpenRouter response did not include message content.")
-    return content.strip()
+    return text_content
+
+
+def _extract_message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        chunks: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text_value = item.get("text")
+                if isinstance(text_value, str) and text_value.strip():
+                    chunks.append(text_value.strip())
+        return "\n".join(chunks).strip()
+    return ""
 
 
 def build_ai_board_prompt(
@@ -279,10 +294,25 @@ def build_ai_board_prompt(
 
 
 def parse_ai_structured_output(content: str) -> tuple[str, list[dict[str, Any]]]:
+    cleaned_content = content.strip()
+    if cleaned_content.startswith("```"):
+        parts = cleaned_content.split("```")
+        if len(parts) >= 3:
+            cleaned_content = parts[1]
+            if cleaned_content.lower().startswith("json"):
+                cleaned_content = cleaned_content[4:]
+            cleaned_content = cleaned_content.strip()
     try:
-        parsed = json.loads(content)
+        parsed = json.loads(cleaned_content)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Model response was not valid JSON.") from exc
+        start = cleaned_content.find("{")
+        end = cleaned_content.rfind("}")
+        if start == -1 or end == -1 or start >= end:
+            raise RuntimeError("Model response was not valid JSON.") from exc
+        try:
+            parsed = json.loads(cleaned_content[start : end + 1])
+        except json.JSONDecodeError as inner_exc:
+            raise RuntimeError("Model response was not valid JSON.") from inner_exc
     if not isinstance(parsed, dict):
         raise RuntimeError("Model response must be a JSON object.")
     assistant_message = parsed.get("assistantMessage")

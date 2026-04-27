@@ -54,6 +54,8 @@ const boardFixture = {
 
 const setupBoardApiMock = async (page: Page) => {
   let boardStore = JSON.parse(JSON.stringify(boardFixture));
+  const columnById = (id: string) =>
+    boardStore.columns.find((column: { id: string }) => column.id === id);
   await page.route("**/api/board**", async (route) => {
     const request = route.request();
     if (request.method() === "GET") {
@@ -75,6 +77,52 @@ const setupBoardApiMock = async (page: Page) => {
       return;
     }
     await route.fallback();
+  });
+  await page.route("**/api/ai/board", async (route) => {
+    const request = route.request();
+    if (request.method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const payload = request.postDataJSON() as { message?: string };
+    const message = (payload.message ?? "").toLowerCase();
+
+    if (message.includes("move card-1")) {
+      const backlog = columnById("col-backlog");
+      const done = columnById("col-done");
+      if (backlog && done) {
+        backlog.cardIds = backlog.cardIds.filter((id: string) => id !== "card-1");
+        done.cardIds = ["card-1", ...done.cardIds.filter((id: string) => id !== "card-1")];
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          assistantMessage: "Moved card-1 to done.",
+          operations: [
+            {
+              type: "move_card",
+              cardId: "card-1",
+              fromColumnId: "col-backlog",
+              toColumnId: "col-done",
+              position: 0,
+            },
+          ],
+          board: boardStore,
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        assistantMessage: "No board changes needed.",
+        operations: [],
+        board: boardStore,
+      }),
+    });
   });
 };
 
@@ -106,13 +154,14 @@ test("adds a card to a column", async ({ page }) => {
 });
 
 test("moves a card between columns", async ({ page }) => {
+  await page.setViewportSize({ width: 1900, height: 1100 });
   await setupBoardApiMock(page);
   await login(page);
   const card = page.getByTestId("card-card-1");
-  const targetColumn = page.getByTestId("column-col-review");
+  const targetCardInReview = page.getByTestId("card-card-6");
   const cardBox = await card.boundingBox();
-  const columnBox = await targetColumn.boundingBox();
-  if (!cardBox || !columnBox) {
+  const targetCardBox = await targetCardInReview.boundingBox();
+  if (!cardBox || !targetCardBox) {
     throw new Error("Unable to resolve drag coordinates.");
   }
 
@@ -122,12 +171,12 @@ test("moves a card between columns", async ({ page }) => {
   );
   await page.mouse.down();
   await page.mouse.move(
-    columnBox.x + columnBox.width / 2,
-    columnBox.y + 120,
+    targetCardBox.x + targetCardBox.width / 2,
+    targetCardBox.y + targetCardBox.height / 2,
     { steps: 12 }
   );
   await page.mouse.up();
-  await expect(targetColumn.getByTestId("card-card-1")).toBeVisible();
+  await expect(page.getByTestId("column-col-review").getByTestId("card-card-1")).toBeVisible();
 });
 
 test("blocks board before login and supports logout", async ({ page }) => {
@@ -160,4 +209,17 @@ test("keeps board changes after page reload", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("heading", { name: "Kanban Studio" })).toBeVisible();
   await expect(firstColumn.getByLabel("Column title")).toHaveValue("Reload Persisted");
+});
+
+test("applies AI chat board mutation in UI", async ({ page }) => {
+  await setupBoardApiMock(page);
+  await login(page);
+
+  await expect(page.getByRole("complementary", { name: /ai sidebar/i })).toBeVisible();
+  await page.getByLabel("Chat message").fill("Move card-1 to done");
+  await page.getByRole("button", { name: /^send$/i }).click();
+
+  const doneColumn = page.getByTestId("column-col-done");
+  await expect(doneColumn.getByTestId("card-card-1")).toBeVisible();
+  await expect(page.getByText("Moved card-1 to done.")).toBeVisible();
 });

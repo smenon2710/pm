@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
@@ -30,6 +30,21 @@ describe("Home auth gate", () => {
         };
         boardStore = payload.board;
         return makeResponse({ ok: true });
+      }
+      if (url.includes("/api/ai/board") && method === "POST") {
+        const payload = JSON.parse(String(init?.body)) as {
+          message: string;
+        };
+        const nextBoard = structuredClone(boardStore);
+        if (payload.message.toLowerCase().includes("rename")) {
+          nextBoard.columns[0].title = "AI Renamed";
+        }
+        boardStore = nextBoard;
+        return makeResponse({
+          assistantMessage: "Handled your request.",
+          operations: [],
+          board: boardStore,
+        });
       }
       return makeResponse({ status: "ok" });
     });
@@ -90,5 +105,51 @@ describe("Home auth gate", () => {
 
     expect((await screen.findAllByLabelText("Column title"))[0]).toHaveValue("Saved Column");
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("renders AI sidebar after login and sends chat", async () => {
+    render(<Home />);
+
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(await screen.findByRole("complementary", { name: /ai sidebar/i })).toBeInTheDocument();
+    expect(screen.getByText("No messages yet.")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Chat message"), "please rename column");
+    await userEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    const chatHistory = screen.getByTestId("chat-history");
+    expect(await within(chatHistory).findByText("please rename column")).toBeInTheDocument();
+    expect(await within(chatHistory).findByText("Handled your request.")).toBeInTheDocument();
+    expect((await screen.findAllByLabelText("Column title"))[0]).toHaveValue("AI Renamed");
+  });
+
+  it("shows chat error when AI request fails", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.includes("/api/board") && method === "GET") {
+        return makeResponse({ username: "user", board: boardStore });
+      }
+      if (url.includes("/api/ai/board") && method === "POST") {
+        return makeResponse({ detail: "Model response was not valid JSON." }, false);
+      }
+      if (url.includes("/api/board") && method === "PUT") {
+        return makeResponse({ ok: true });
+      }
+      return makeResponse({ status: "ok" });
+    });
+
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await userEvent.type(screen.getByLabelText("Chat message"), "do anything");
+    await userEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(await screen.findByText("Model response was not valid JSON.")).toBeInTheDocument();
   });
 });
