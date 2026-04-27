@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 import sqlite3
@@ -132,3 +133,175 @@ def test_ai_smoke_openrouter_timeout(tmp_path: Path, monkeypatch) -> None:
         response = client.get("/api/ai/smoke")
         assert response.status_code == 502
         assert "timed out" in response.json()["detail"].lower()
+
+
+def test_ai_board_update_card_operation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    model_response = {
+        "assistantMessage": "Updated card details.",
+        "operations": [
+            {
+                "type": "update_card",
+                "cardId": "card-1",
+                "title": "Updated title",
+                "details": "Updated details",
+            }
+        ],
+    }
+
+    def fake_completion(prompt: str, api_key: str, timeout_seconds: float = 15.0) -> str:
+        assert api_key == "test-key"
+        assert '"userMessage": "please edit card one"' in prompt
+        return json.dumps(model_response)
+
+    monkeypatch.setattr("app.main.request_openrouter_completion", fake_completion)
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/ai/board",
+            json={"username": "user", "message": "please edit card one", "history": []},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["assistantMessage"] == "Updated card details."
+        assert data["board"]["cards"]["card-1"]["title"] == "Updated title"
+        persisted = client.get("/api/board").json()["board"]
+        assert persisted["cards"]["card-1"]["details"] == "Updated details"
+
+
+def test_ai_board_move_card_operation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    model_response = {
+        "assistantMessage": "Moved card.",
+        "operations": [
+            {
+                "type": "move_card",
+                "cardId": "card-1",
+                "fromColumnId": "col-backlog",
+                "toColumnId": "col-done",
+                "position": 0,
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: json.dumps(model_response),
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/ai/board",
+            json={"username": "user", "message": "move card-1 to done"},
+        )
+        assert response.status_code == 200
+        data = response.json()["board"]
+        assert "card-1" not in data["columns"][0]["cardIds"]
+        done_column = [c for c in data["columns"] if c["id"] == "col-done"][0]
+        assert done_column["cardIds"][0] == "card-1"
+
+
+def test_ai_board_create_card_operation(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    model_response = {
+        "assistantMessage": "Created a new card.",
+        "operations": [
+            {
+                "type": "create_card",
+                "cardId": "card-new",
+                "columnId": "col-backlog",
+                "title": "New card",
+                "details": "Created by AI",
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: json.dumps(model_response),
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/ai/board",
+            json={"username": "user", "message": "create a card"},
+        )
+        assert response.status_code == 200
+        board = response.json()["board"]
+        assert board["cards"]["card-new"]["title"] == "New card"
+        backlog = [c for c in board["columns"] if c["id"] == "col-backlog"][0]
+        assert "card-new" in backlog["cardIds"]
+
+
+def test_ai_board_accepts_empty_operations(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    model_response = {"assistantMessage": "No changes needed.", "operations": []}
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: json.dumps(model_response),
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        before = client.get("/api/board").json()["board"]
+        response = client.post("/api/ai/board", json={"username": "user", "message": "status?"})
+        assert response.status_code == 200
+        after = response.json()["board"]
+        assert after == before
+
+
+def test_ai_board_rejects_malformed_json_response(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: "{not valid json",
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        before = client.get("/api/board").json()["board"]
+        response = client.post("/api/ai/board", json={"username": "user", "message": "do something"})
+        assert response.status_code == 502
+        assert "valid json" in response.json()["detail"].lower()
+        after = client.get("/api/board").json()["board"]
+        assert after == before
+
+
+def test_ai_board_rejects_partial_model_output(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: json.dumps({"assistantMessage": "ok"}),
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.post("/api/ai/board", json={"username": "user", "message": "do something"})
+        assert response.status_code == 502
+        assert "operations array" in response.json()["detail"].lower()
+
+
+def test_ai_board_rejects_invalid_operation_and_preserves_board(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    model_response = {
+        "assistantMessage": "I moved it.",
+        "operations": [
+            {
+                "type": "move_card",
+                "cardId": "card-1",
+                "fromColumnId": "col-review",
+                "toColumnId": "col-done",
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "app.main.request_openrouter_completion",
+        lambda prompt, api_key, timeout_seconds=15.0: json.dumps(model_response),
+    )
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        before = client.get("/api/board").json()["board"]
+        response = client.post("/api/ai/board", json={"username": "user", "message": "move card-1"})
+        assert response.status_code == 502
+        assert "is not in" in response.json()["detail"]
+        after = client.get("/api/board").json()["board"]
+        assert after == before

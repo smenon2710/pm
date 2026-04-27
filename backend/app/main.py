@@ -1,7 +1,9 @@
 import json
 import os
 import sqlite3
+import uuid
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -242,6 +244,129 @@ def request_openrouter_completion(prompt: str, api_key: str, timeout_seconds: fl
     return content.strip()
 
 
+def build_ai_board_prompt(
+    board: dict[str, Any], user_message: str, history: list[dict[str, str]]
+) -> str:
+    prompt_payload = {
+        "task": "Return only valid JSON matching the required schema.",
+        "required_schema": {
+            "assistantMessage": "string",
+            "operations": [
+                {
+                    "type": "create_card|update_card|move_card",
+                    "cardId": "string",
+                    "title": "string (create/update only)",
+                    "details": "string (create/update only)",
+                    "columnId": "string (create only)",
+                    "fromColumnId": "string (move only)",
+                    "toColumnId": "string (move only)",
+                    "position": "integer >= 0 (move only, optional)",
+                }
+            ],
+        },
+        "rules": [
+            "Do not include markdown fences.",
+            "If no board mutation is needed, return operations as an empty list.",
+            "Only use existing column ids.",
+            "For update_card, include title and details values to set.",
+            "For move_card, cardId must already exist.",
+        ],
+        "conversationHistory": history,
+        "currentBoard": board,
+        "userMessage": user_message,
+    }
+    return json.dumps(prompt_payload)
+
+
+def parse_ai_structured_output(content: str) -> tuple[str, list[dict[str, Any]]]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Model response was not valid JSON.") from exc
+    if not isinstance(parsed, dict):
+        raise RuntimeError("Model response must be a JSON object.")
+    assistant_message = parsed.get("assistantMessage")
+    operations = parsed.get("operations")
+    if not isinstance(assistant_message, str) or not assistant_message.strip():
+        raise RuntimeError("Model response must include assistantMessage string.")
+    if not isinstance(operations, list):
+        raise RuntimeError("Model response must include operations array.")
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise RuntimeError("Each operation must be an object.")
+        op_type = operation.get("type")
+        if op_type not in {"create_card", "update_card", "move_card"}:
+            raise RuntimeError(f"Unsupported operation type: {op_type}.")
+    return assistant_message.strip(), operations
+
+
+def _require_string_field(operation: dict[str, Any], field: str, op_type: str) -> str:
+    value = operation.get(field)
+    if not isinstance(value, str) or not value:
+        raise RuntimeError(f"{op_type} requires non-empty string field {field}.")
+    return value
+
+
+def apply_board_operations(board: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
+    updated = deepcopy(board)
+    columns: list[dict[str, Any]] = updated.get("columns", [])
+    cards: dict[str, dict[str, str]] = updated.get("cards", {})
+    column_by_id: dict[str, dict[str, Any]] = {
+        col["id"]: col for col in columns if isinstance(col, dict) and isinstance(col.get("id"), str)
+    }
+    for operation in operations:
+        op_type = operation["type"]
+        if op_type == "create_card":
+            card_id = operation.get("cardId")
+            if not isinstance(card_id, str) or not card_id:
+                card_id = f"card-{uuid.uuid4().hex[:8]}"
+            if card_id in cards:
+                raise RuntimeError(f"create_card target already exists: {card_id}.")
+            column_id = _require_string_field(operation, "columnId", op_type)
+            target_column = column_by_id.get(column_id)
+            if target_column is None:
+                raise RuntimeError(f"create_card references unknown columnId {column_id}.")
+            title = _require_string_field(operation, "title", op_type)
+            details = _require_string_field(operation, "details", op_type)
+            cards[card_id] = {"id": card_id, "title": title, "details": details}
+            target_column["cardIds"].append(card_id)
+            continue
+
+        card_id = _require_string_field(operation, "cardId", op_type)
+        card = cards.get(card_id)
+        if card is None:
+            raise RuntimeError(f"{op_type} references unknown cardId {card_id}.")
+
+        if op_type == "update_card":
+            title = _require_string_field(operation, "title", op_type)
+            details = _require_string_field(operation, "details", op_type)
+            card["title"] = title
+            card["details"] = details
+            continue
+
+        if op_type == "move_card":
+            from_column_id = _require_string_field(operation, "fromColumnId", op_type)
+            to_column_id = _require_string_field(operation, "toColumnId", op_type)
+            from_column = column_by_id.get(from_column_id)
+            to_column = column_by_id.get(to_column_id)
+            if from_column is None or to_column is None:
+                raise RuntimeError("move_card references unknown from/to column id.")
+            if card_id not in from_column["cardIds"]:
+                raise RuntimeError(f"move_card cardId {card_id} is not in {from_column_id}.")
+            from_column["cardIds"].remove(card_id)
+            position = operation.get("position")
+            if not isinstance(position, int) or position < 0 or position > len(to_column["cardIds"]):
+                to_column["cardIds"].append(card_id)
+            else:
+                to_column["cardIds"].insert(position, card_id)
+            continue
+
+    is_valid, error_detail = validate_board_payload(updated)
+    if not is_valid:
+        raise RuntimeError(f"Model operations produced invalid board: {error_detail}")
+    return updated
+
+
 def create_app(db_path: Path | None = None) -> FastAPI:
     resolved_db_path = db_path or Path(os.getenv("PM_DB_PATH", str(DEFAULT_DB_PATH)))
 
@@ -289,6 +414,53 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"ok": True, "prompt": "2+2", "response": completion}
+
+    @app.post("/api/ai/board")
+    def ai_board(payload: dict[str, Any]) -> dict[str, Any]:
+        username = payload.get("username")
+        user_message = payload.get("message")
+        history = payload.get("history", [])
+        if not isinstance(username, str) or not username:
+            raise HTTPException(status_code=400, detail="username is required.")
+        if not isinstance(user_message, str) or not user_message.strip():
+            raise HTTPException(status_code=400, detail="message is required.")
+        if not isinstance(history, list):
+            raise HTTPException(status_code=400, detail="history must be an array.")
+        for item in history:
+            if not isinstance(item, dict):
+                raise HTTPException(status_code=400, detail="history items must be objects.")
+            role = item.get("role")
+            content = item.get("content")
+            if role not in {"user", "assistant"} or not isinstance(content, str):
+                raise HTTPException(
+                    status_code=400,
+                    detail="history items must include role (user|assistant) and string content.",
+                )
+
+        board = load_board_for_user(resolved_db_path, username)
+        if board is None:
+            raise HTTPException(status_code=404, detail="Board not found for user.")
+
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not configured.")
+
+        prompt = build_ai_board_prompt(board=board, user_message=user_message, history=history)
+        try:
+            completion = request_openrouter_completion(prompt=prompt, api_key=api_key)
+            assistant_message, operations = parse_ai_structured_output(completion)
+            updated_board = apply_board_operations(board, operations)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        if operations and not save_board_for_user(resolved_db_path, username, updated_board):
+            raise HTTPException(status_code=404, detail="Board not found for user.")
+
+        return {
+            "assistantMessage": assistant_message,
+            "operations": operations,
+            "board": updated_board,
+        }
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "out"
 

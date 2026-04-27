@@ -158,19 +158,19 @@ Guiding principles:
 ## Part 9: AI Structured Outputs for Board Operations
 
 ### Checklist
-- [ ] Define and document structured output schema.
-- [ ] Include board JSON, user message, and conversation history in prompt context.
-- [ ] Parse structured response into:
-  - [ ] assistant text response
-  - [ ] optional board update operation(s)
-- [ ] Apply validated board updates server-side.
-- [ ] Return updated board + assistant message to frontend.
+- [x] Define and document structured output schema.
+- [x] Include board JSON, user message, and conversation history in prompt context.
+- [x] Parse structured response into:
+  - [x] assistant text response
+  - [x] optional board update operation(s)
+- [x] Apply validated board updates server-side.
+- [x] Return updated board + assistant message to frontend.
 
 ### Tests
-- [ ] Unit tests for schema validation and parser behavior.
-- [ ] Unit tests for each supported board operation.
-- [ ] Integration tests for end-to-end AI-response-to-board-update flow.
-- [ ] Safety tests for malformed or partial model output.
+- [x] Unit tests for schema validation and parser behavior.
+- [x] Unit tests for each supported board operation.
+- [x] Integration tests for end-to-end AI-response-to-board-update flow.
+- [x] Safety tests for malformed or partial model output.
 
 ### Success Criteria
 - Structured output contract is explicit and enforced.
