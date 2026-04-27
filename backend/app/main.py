@@ -4,6 +4,7 @@ import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse
@@ -202,6 +203,45 @@ def save_board_for_user(db_path: Path, username: str, board: dict[str, Any]) -> 
     return updated.rowcount > 0
 
 
+def request_openrouter_completion(prompt: str, api_key: str, timeout_seconds: float = 15.0) -> str:
+    body = json.dumps(
+        {
+            "model": "openai/gpt-oss-120b",
+            "messages": [{"role": "user", "content": prompt}],
+        }
+    ).encode("utf-8")
+    req = request.Request(
+        "https://openrouter.ai/api/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout_seconds) as response:
+            response_body = response.read().decode("utf-8")
+    except error.HTTPError as exc:
+        raise RuntimeError(
+            f"OpenRouter request failed with status {exc.code}."
+        ) from exc
+    except error.URLError as exc:
+        raise RuntimeError("OpenRouter request failed due to network error.") from exc
+    except TimeoutError as exc:
+        raise RuntimeError("OpenRouter request timed out.") from exc
+
+    parsed = json.loads(response_body)
+    choices = parsed.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("OpenRouter response did not include choices.")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("OpenRouter response did not include message content.")
+    return content.strip()
+
+
 def create_app(db_path: Path | None = None) -> FastAPI:
     resolved_db_path = db_path or Path(os.getenv("PM_DB_PATH", str(DEFAULT_DB_PATH)))
 
@@ -235,6 +275,20 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         if not save_board_for_user(resolved_db_path, username, board):
             raise HTTPException(status_code=404, detail="Board not found for user.")
         return {"ok": True}
+
+    @app.get("/api/ai/smoke")
+    def ai_smoke() -> dict[str, Any]:
+        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="OPENROUTER_API_KEY is not configured.",
+            )
+        try:
+            completion = request_openrouter_completion(prompt="2+2", api_key=api_key)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"ok": True, "prompt": "2+2", "response": completion}
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "out"
 

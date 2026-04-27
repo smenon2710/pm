@@ -78,3 +78,57 @@ def test_put_board_rejects_duplicate_card_assignment(tmp_path: Path) -> None:
         response = client.put("/api/board", json={"username": "user", "board": board})
         assert response.status_code == 400
         assert "multiple columns" in response.json()["detail"].lower()
+
+
+def test_ai_smoke_success(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    def fake_completion(prompt: str, api_key: str, timeout_seconds: float = 15.0) -> str:
+        assert prompt == "2+2"
+        assert api_key == "test-key"
+        assert timeout_seconds == 15.0
+        return "4"
+
+    monkeypatch.setattr("app.main.request_openrouter_completion", fake_completion)
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.get("/api/ai/smoke")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "prompt": "2+2", "response": "4"}
+
+
+def test_ai_smoke_missing_api_key(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.get("/api/ai/smoke")
+        assert response.status_code == 500
+        assert "not configured" in response.json()["detail"].lower()
+
+
+def test_ai_smoke_openrouter_non_200(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    def failing_completion(prompt: str, api_key: str, timeout_seconds: float = 15.0) -> str:
+        raise RuntimeError("OpenRouter request failed with status 401.")
+
+    monkeypatch.setattr("app.main.request_openrouter_completion", failing_completion)
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.get("/api/ai/smoke")
+        assert response.status_code == 502
+        assert "status 401" in response.json()["detail"].lower()
+
+
+def test_ai_smoke_openrouter_timeout(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    def timeout_completion(prompt: str, api_key: str, timeout_seconds: float = 15.0) -> str:
+        raise RuntimeError("OpenRouter request timed out.")
+
+    monkeypatch.setattr("app.main.request_openrouter_completion", timeout_completion)
+    app = create_app(tmp_path / "test.db")
+    with TestClient(app) as client:
+        response = client.get("/api/ai/smoke")
+        assert response.status_code == 502
+        assert "timed out" in response.json()["detail"].lower()
