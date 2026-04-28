@@ -10,6 +10,21 @@ const makeResponse = (body: unknown, ok = true) =>
     headers: { "Content-Type": "application/json" },
   });
 
+class MockSpeechRecognition {
+  continuous = false;
+  interimResults = false;
+  lang = "";
+  onresult: ((event: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null =
+    null;
+  onerror: ((event: { error: string }) => void) | null = null;
+  onend: (() => void) | null = null;
+
+  start = vi.fn();
+  stop = vi.fn(() => {
+    this.onend?.();
+  });
+}
+
 describe("Home auth gate", () => {
   let boardStore: BoardData;
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -49,6 +64,7 @@ describe("Home auth gate", () => {
       return makeResponse({ status: "ok" });
     });
     vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("SpeechRecognition", MockSpeechRecognition);
   });
 
   it("shows login form when unauthenticated", () => {
@@ -151,5 +167,38 @@ describe("Home auth gate", () => {
     await userEvent.click(screen.getByRole("button", { name: /^send$/i }));
 
     expect(await screen.findByText("Model response was not valid JSON.")).toBeInTheDocument();
+  });
+
+  it("shows unsupported message when speech API is unavailable", async () => {
+    vi.stubGlobal("SpeechRecognition", undefined);
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+    expect(await screen.findByText("Voice input not supported on this browser.")).toBeInTheDocument();
+  });
+
+  it("transitions listening state and clears transcript", async () => {
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const sidebar = await screen.findByRole("complementary", { name: /ai sidebar/i });
+    const startButton = within(sidebar).getByText("Start listening").closest("button");
+    expect(startButton).not.toBeNull();
+    if (!startButton) {
+      throw new Error("Start listening button not found.");
+    }
+    await userEvent.click(startButton);
+    expect(within(sidebar).getByText("Listening...")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Chat message"), "voice transcript");
+    const clearButton = within(sidebar).getByText("Clear").closest("button");
+    expect(clearButton).not.toBeNull();
+    if (!clearButton) {
+      throw new Error("Clear button not found.");
+    }
+    await userEvent.click(clearButton);
+    expect(screen.getByLabelText("Chat message")).toHaveValue("");
   });
 });

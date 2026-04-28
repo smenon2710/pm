@@ -140,15 +140,15 @@ Guiding principles:
 ## Part 8: AI Connectivity via OpenRouter
 
 ### Checklist
-- [ ] Add backend service for OpenRouter calls using `OPENROUTER_API_KEY`.
-- [ ] Configure model `openai/gpt-oss-120b`.
-- [ ] Add test endpoint/path that performs simple `2+2` prompt.
-- [ ] Add clear errors when key is missing or API fails.
+- [x] Add backend service for OpenRouter calls using `OPENROUTER_API_KEY`.
+- [x] Configure model `openai/gpt-oss-120b`.
+- [x] Add test endpoint/path that performs simple `2+2` prompt.
+- [x] Add clear errors when key is missing or API fails.
 
 ### Tests
-- [ ] Unit tests with mocked OpenRouter client.
-- [ ] Connectivity smoke test for `2+2` result path.
-- [ ] Failure path tests (missing key, non-200 response, timeout).
+- [x] Unit tests with mocked OpenRouter client.
+- [x] Connectivity smoke test for `2+2` result path.
+- [x] Failure path tests (missing key, non-200 response, timeout).
 
 ### Success Criteria
 - Backend can successfully complete a simple OpenRouter call.
@@ -196,11 +196,94 @@ Guiding principles:
 - AI responses appear in conversation history.
 - When AI returns board changes, board refreshes automatically and correctly.
 
+## Part 11: Voice Control for Kanban Board
+
+Goal: enable users to fully control the board with voice, including moving cards, creating cards, deleting cards, renaming columns, and updating card content.
+
+### Part 11A: Voice Input Foundation
+
+#### Checklist
+- [x] Add voice input controls in sidebar chat:
+  - [x] Start/stop microphone recording button
+  - [x] Listening indicator (clear active state)
+  - [x] Quick retry/clear transcript actions
+- [x] Add browser speech-to-text layer:
+  - [x] Convert speech to transcript in near real time
+  - [x] Populate transcript into editable message input
+  - [x] Support manual edit before submit
+- [x] Handle platform fallbacks:
+  - [x] Permission-denied state
+  - [x] No microphone/device unavailable state
+  - [x] Unsupported-browser state
+
+#### Tests
+- [x] Component tests for supported/unsupported rendering states.
+- [x] Component tests for listening/idle/error transitions.
+- [x] Unit tests for transcript normalization and message composition.
+- [x] Unit tests for permission/API failure handling.
+
+#### Success Criteria
+- User can speak and see transcript appear in message input.
+- Transcript is editable before send.
+- Unsupported/denied states show clear guidance and do not crash UI.
+
+### Part 11B: Full Voice Command Execution
+
+#### Checklist
+- [ ] Route voice transcript through existing AI endpoint (`POST /api/ai/board`).
+- [ ] Ensure command coverage for:
+  - [ ] Move cards between columns
+  - [ ] Create cards
+  - [ ] Delete cards
+  - [ ] Rename columns
+  - [ ] Edit card title/details
+- [ ] Support multi-operation utterances where reasonable.
+- [ ] Ensure returned board updates are applied immediately in UI.
+
+#### Tests
+- [ ] Integration test: voice transcript executes move-card command.
+- [ ] Integration test: voice transcript executes create/delete/edit/rename commands.
+- [ ] Integration test: failed AI responses do not corrupt board state.
+- [ ] E2E mocked-mic test for move + rename flows.
+- [ ] E2E mocked-mic test for create/edit/delete card flows.
+
+#### Success Criteria
+- Voice commands can control all core board operations.
+- Voice and typed flows share one backend pathway and produce equivalent behavior.
+- Invalid model responses never persist broken board state.
+
+### Part 11C: Voice UX Polish and Reliability
+
+#### Checklist
+- [ ] Add command preview/confirmation UX:
+  - [ ] Display recognized transcript before submit
+  - [ ] Display assistant confirmation of applied operations
+- [ ] Improve feedback and recovery:
+  - [ ] Actionable error copy for failed recognition and failed AI apply
+  - [ ] One-tap retry for recent voice command
+- [ ] Improve accessibility:
+  - [ ] Keyboard-operable voice controls
+  - [ ] Proper labels/announcements for listening and errors
+- [ ] Keep typed chat and drag-and-drop behavior regression-free.
+
+#### Tests
+- [ ] Component tests for preview/confirmation/error visuals.
+- [ ] Accessibility checks for voice controls and state announcements.
+- [ ] Regression pass for typed chat and drag-and-drop board interactions.
+
+#### Success Criteria
+- Voice control experience is clear, reliable, and accessible.
+- Users can recover quickly from recognition or execution errors.
+- Existing board interaction modes remain stable.
+
 ## Phase Gates
 
 - Gate A (required): User approval after Part 1 documentation. (completed)
 - Gate B (required): User approval after Part 5 schema proposal. (completed)
 - Gate C (optional): User checkpoint after Part 8 before structured outputs and full chat UX.
+- Gate D (optional): User checkpoint after Part 10 before voice control implementation.
+- Gate E (optional): User checkpoint after Part 11A foundation before full voice command execution.
+- Gate F (optional): User checkpoint after Part 11B command coverage before UX polish.
 
 ## Default Test Commands
 
@@ -208,7 +291,7 @@ Guiding principles:
 - Frontend e2e: `npm run test:e2e` (from `frontend/`)
 - Backend unit/integration: `pytest` (from `backend/`, once created)
 
-## Implemented Design Decisions (Through Part 7)
+## Implemented Design Decisions (Through Part 10)
 
 - Backend startup uses FastAPI lifespan to initialize SQLite automatically at `data/pm.db` (override supported via `PM_DB_PATH`).
 - DB seeding guarantees default `user` and one seeded board row when missing.
@@ -216,11 +299,20 @@ Guiding principles:
 - Board API surface is intentionally minimal for MVP:
   - `GET /api/board?username=user`
   - `PUT /api/board` with `{ username, board }`
+- OpenRouter connectivity is implemented in backend:
+  - `GET /api/ai/smoke` for basic connectivity smoke checks (`2+2`)
+  - `POST /api/ai/board` for structured AI board operations
+- Start scripts pass environment variables from `.env` into Docker container when present.
 - Frontend auth remains hardcoded (`user`/`password`) with local session flag (`pm-authenticated`).
 - Frontend board lifecycle:
   - load board from backend after login
   - persist board on edits
   - show lightweight loading/sync-error badges
+- Frontend AI chat sidebar:
+  - keeps session-local conversation history
+  - submits user messages to `/api/ai/board`
+  - applies returned board updates immediately
+  - surfaces backend error details in the UI
 - Frontend and backend are built/run in one Docker image using multi-stage build:
   - Next.js static export served by FastAPI at `/`
   - backend APIs remain under `/api/*`

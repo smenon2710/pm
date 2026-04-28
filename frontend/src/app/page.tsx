@@ -14,6 +14,50 @@ type ChatMessage = {
   content: string;
 };
 
+type SpeechRecognitionError =
+  | "aborted"
+  | "audio-capture"
+  | "network"
+  | "not-allowed"
+  | "service-not-allowed"
+  | "no-speech"
+  | "language-not-supported";
+
+type SpeechRecognitionAlternativeLike = {
+  transcript: string;
+};
+
+type SpeechRecognitionResultLike = {
+  0: SpeechRecognitionAlternativeLike;
+  isFinal: boolean;
+  length: number;
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: SpeechRecognitionResultLike[];
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error: SpeechRecognitionError }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  }
+}
+
 export default function Home() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [board, setBoard] = useState<BoardData>(() => initialData);
@@ -27,10 +71,67 @@ export default function Home() {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [isVoiceSupported, setIsVoiceSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const [lastTranscript, setLastTranscript] = useState("");
   const skipNextSave = useRef(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
     setIsAuthed(window.localStorage.getItem(AUTH_KEY) === "true");
+  }, []);
+
+  useEffect(() => {
+    const Recognition =
+      (globalThis as Window).SpeechRecognition ??
+      window.SpeechRecognition ??
+      window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setIsVoiceSupported(false);
+      return;
+    }
+    setIsVoiceSupported(true);
+    const recognition = new Recognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      let transcript = "";
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        transcript += event.results[index][0].transcript;
+      }
+      const nextValue = transcript.trim();
+      setChatInput(nextValue);
+      if (nextValue) {
+        setLastTranscript(nextValue);
+      }
+      setVoiceError("");
+    };
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setVoiceError("Microphone access denied. Allow access and try again.");
+        return;
+      }
+      if (event.error === "no-speech") {
+        setVoiceError("No speech detected. Try again.");
+        return;
+      }
+      if (event.error === "audio-capture") {
+        setVoiceError("No microphone available.");
+        return;
+      }
+      setVoiceError("Voice recognition failed. Please try again.");
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+    recognitionRef.current = recognition;
+    return () => {
+      recognition.stop();
+      recognitionRef.current = null;
+    };
   }, []);
 
   const handleLogin = (event: FormEvent<HTMLFormElement>) => {
@@ -56,6 +157,10 @@ export default function Home() {
     setChatHistory([]);
     setAiError("");
     setIsAiLoading(false);
+    setIsListening(false);
+    setVoiceError("");
+    setLastTranscript("");
+    recognitionRef.current?.stop();
   };
 
   useEffect(() => {
@@ -126,6 +231,10 @@ export default function Home() {
 
   const handleSendChat = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
     const message = chatInput.trim();
     if (!message || isAiLoading) {
       return;
@@ -180,6 +289,38 @@ export default function Home() {
     } finally {
       setIsAiLoading(false);
     }
+  };
+
+  const startListening = () => {
+    if (!isVoiceSupported || !recognitionRef.current) {
+      setVoiceError("Voice input is not supported on this browser.");
+      return;
+    }
+    try {
+      setVoiceError("");
+      recognitionRef.current.start();
+      setIsListening(true);
+    } catch {
+      setVoiceError("Unable to start voice recognition.");
+    }
+  };
+
+  const stopListening = () => {
+    recognitionRef.current?.stop();
+    setIsListening(false);
+  };
+
+  const clearTranscript = () => {
+    setChatInput("");
+    setLastTranscript("");
+    setVoiceError("");
+  };
+
+  const retryTranscript = () => {
+    if (lastTranscript) {
+      setChatInput(lastTranscript);
+    }
+    startListening();
   };
 
   if (!isAuthed) {
@@ -302,6 +443,48 @@ export default function Home() {
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)]">
                 Message
               </span>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {isVoiceSupported ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={isListening ? stopListening : startListening}
+                      className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                        isListening
+                          ? "border-[var(--secondary-purple)] text-[var(--secondary-purple)]"
+                          : "border-[var(--stroke)] text-[var(--navy-dark)]"
+                      }`}
+                    >
+                      {isListening ? "Stop listening" : "Start listening"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={retryTranscript}
+                      className="rounded-lg border border-[var(--stroke)] px-3 py-1.5 text-sm font-semibold text-[var(--navy-dark)]"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearTranscript}
+                      className="rounded-lg border border-[var(--stroke)] px-3 py-1.5 text-sm font-semibold text-[var(--gray-text)]"
+                    >
+                      Clear
+                    </button>
+                    <span
+                      className={`text-sm font-medium ${
+                        isListening ? "text-[var(--secondary-purple)]" : "text-[var(--gray-text)]"
+                      }`}
+                    >
+                      {isListening ? "Listening..." : "Voice ready"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-[var(--gray-text)]">
+                    Voice input not supported on this browser.
+                  </span>
+                )}
+              </div>
               <textarea
                 value={chatInput}
                 onChange={(event) => setChatInput(event.target.value)}
@@ -311,6 +494,11 @@ export default function Home() {
                 className="w-full resize-y rounded-xl border border-[var(--stroke)] px-4 py-3 text-base leading-6 text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
               />
             </label>
+            {voiceError ? (
+              <p className="rounded-xl border border-[var(--accent-yellow)]/40 bg-[var(--accent-yellow)]/15 px-3 py-2 text-sm font-medium text-[var(--navy-dark)]">
+                {voiceError}
+              </p>
+            ) : null}
             {aiError ? (
               <p className="rounded-xl border border-[var(--secondary-purple)]/25 bg-[var(--secondary-purple)]/8 px-3 py-2 text-sm font-medium text-[var(--secondary-purple)]">
                 {aiError}

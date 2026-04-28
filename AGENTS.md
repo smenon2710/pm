@@ -8,6 +8,7 @@ This project is building a Project Management App. Key features:
 - The Kanban board has fixed columns that can be renamed
 - The cards on the Kanban board can be moved with drag and drop, and edited
 - There is an AI chat feature in a sidebar; the AI is able to create / edit / move one or more cards
+- Voice control for board actions is planned as the next feature phase
 
 ## Limitations
 
@@ -27,10 +28,18 @@ For the MVP, this will run locally (in a docker container)
 - Use `openai/gpt-oss-120b` as the model
 - Use SQLLite local database for the database, creating a new db if it doesn't exist
 - Start and Stop server scripts for Mac, PC, Linux in scripts/
+- Start scripts should pass `.env` into Docker (`--env-file`) when present
 
-## Starting Point
+## Current State (Implemented Through Part 10)
 
-A working MVP of the frontend has been built and is already in frontend. This is not yet designed for the Docker setup. It's a pure frontend-only demo.
+- Auth-gated board is implemented with hardcoded credentials (`user` / `password`)
+- Board data is persisted in SQLite via backend APIs (`GET /api/board`, `PUT /api/board`)
+- Backend auto-initializes DB and seeds default user + board
+- OpenRouter integration is implemented:
+  - `GET /api/ai/smoke` for connectivity checks
+  - `POST /api/ai/board` for structured AI operations
+- Frontend includes an AI sidebar chat that can trigger card create/edit/move via backend
+- Frontend and backend run together in Docker with static Next.js served by FastAPI
 
 ## Color Scheme
 
