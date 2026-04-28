@@ -230,22 +230,22 @@ Goal: enable users to fully control the board with voice, including moving cards
 ### Part 11B: Full Voice Command Execution
 
 #### Checklist
-- [ ] Route voice transcript through existing AI endpoint (`POST /api/ai/board`).
-- [ ] Ensure command coverage for:
-  - [ ] Move cards between columns
-  - [ ] Create cards
-  - [ ] Delete cards
-  - [ ] Rename columns
-  - [ ] Edit card title/details
-- [ ] Support multi-operation utterances where reasonable.
-- [ ] Ensure returned board updates are applied immediately in UI.
+- [x] Route voice transcript through existing AI endpoint (`POST /api/ai/board`).
+- [x] Ensure command coverage for:
+  - [x] Move cards between columns
+  - [x] Create cards
+  - [x] Delete cards
+  - [x] Rename columns
+  - [x] Edit card title/details
+- [x] Support multi-operation utterances where reasonable.
+- [x] Ensure returned board updates are applied immediately in UI.
 
 #### Tests
-- [ ] Integration test: voice transcript executes move-card command.
-- [ ] Integration test: voice transcript executes create/delete/edit/rename commands.
-- [ ] Integration test: failed AI responses do not corrupt board state.
-- [ ] E2E mocked-mic test for move + rename flows.
-- [ ] E2E mocked-mic test for create/edit/delete card flows.
+- [x] Integration test: voice transcript executes move-card command.
+- [x] Integration test: voice transcript executes create/delete/edit/rename commands.
+- [x] Integration test: failed AI responses do not corrupt board state.
+- [x] E2E mocked-mic test for move + rename flows.
+- [x] E2E mocked-mic test for create/edit/delete card flows.
 
 #### Success Criteria
 - Voice commands can control all core board operations.

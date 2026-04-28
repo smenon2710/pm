@@ -1,5 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
+declare global {
+  interface Window {
+    SpeechRecognition: new () => {
+      continuous: boolean;
+      interimResults: boolean;
+      lang: string;
+      onresult: ((event: unknown) => void) | null;
+      onerror: ((event: unknown) => void) | null;
+      onend: (() => void) | null;
+      start: () => void;
+      stop: () => void;
+    };
+    __emitSpeechTranscript: (transcript: string) => void;
+  }
+}
+
 const boardFixture = {
   columns: [
     { id: "col-backlog", title: "Backlog", cardIds: ["card-1", "card-2"] },
@@ -94,12 +110,31 @@ const setupBoardApiMock = async (page: Page) => {
         backlog.cardIds = backlog.cardIds.filter((id: string) => id !== "card-1");
         done.cardIds = ["card-1", ...done.cardIds.filter((id: string) => id !== "card-1")];
       }
+      if (message.includes("rename")) {
+        const backlogColumn = columnById("col-backlog");
+        if (backlogColumn) {
+          backlogColumn.title = "AI Renamed";
+        }
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          assistantMessage: "Moved card-1 to done.",
-          operations: [
+          assistantMessage: message.includes("rename")
+            ? "Moved card-1 and renamed backlog."
+            : "Moved card-1 to done.",
+          operations: message.includes("rename")
+            ? [
+                {
+                  type: "move_card",
+                  cardId: "card-1",
+                  fromColumnId: "col-backlog",
+                  toColumnId: "col-done",
+                  position: 0,
+                },
+                { type: "rename_column", columnId: "col-backlog", title: "AI Renamed" },
+              ]
+            : [
             {
               type: "move_card",
               cardId: "card-1",
@@ -108,6 +143,61 @@ const setupBoardApiMock = async (page: Page) => {
               position: 0,
             },
           ],
+          board: boardStore,
+        }),
+      });
+      return;
+    }
+    if (message.includes("rename")) {
+      const backlog = columnById("col-backlog");
+      if (backlog) {
+        backlog.title = "AI Renamed";
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          assistantMessage: "Renamed backlog column.",
+          operations: [{ type: "rename_column", columnId: "col-backlog", title: "AI Renamed" }],
+          board: boardStore,
+        }),
+      });
+      return;
+    }
+    if (message.includes("create") || message.includes("edit card-2") || message.includes("delete card-3")) {
+      if (message.includes("create")) {
+        boardStore.cards["card-voice"] = {
+          id: "card-voice",
+          title: "Voice card",
+          details: "Created from voice command.",
+        };
+        const backlog = columnById("col-backlog");
+        if (backlog && !backlog.cardIds.includes("card-voice")) {
+          backlog.cardIds.push("card-voice");
+        }
+      }
+      if (message.includes("edit card-2")) {
+        boardStore.cards["card-2"] = {
+          ...boardStore.cards["card-2"],
+          title: "Signals Updated",
+          details: "Updated via voice",
+        };
+      }
+      if (message.includes("delete card-3")) {
+        delete boardStore.cards["card-3"];
+        boardStore.columns = boardStore.columns.map(
+          (column: { id: string; title: string; cardIds: string[] }) => ({
+            ...column,
+            cardIds: column.cardIds.filter((id) => id !== "card-3"),
+          })
+        );
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          assistantMessage: "Applied requested updates.",
+          operations: [],
           board: boardStore,
         }),
       });
@@ -123,6 +213,40 @@ const setupBoardApiMock = async (page: Page) => {
         board: boardStore,
       }),
     });
+  });
+};
+
+const setupMockSpeechRecognition = async (page: Page) => {
+  await page.addInitScript(() => {
+    class MockSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "en-US";
+      onresult = null;
+      onerror = null;
+      onend = null;
+      static latest = null;
+      constructor() {
+        MockSpeechRecognition.latest = this;
+      }
+      start() {}
+      stop() {
+        if (this.onend) {
+          this.onend();
+        }
+      }
+    }
+    window.SpeechRecognition = MockSpeechRecognition;
+    window.__emitSpeechTranscript = (transcript) => {
+      const recognition = MockSpeechRecognition.latest;
+      if (!recognition || !recognition.onresult) {
+        return;
+      }
+      recognition.onresult({
+        resultIndex: 0,
+        results: [{ 0: { transcript }, isFinal: true, length: 1 }],
+      });
+    };
   });
 };
 
@@ -222,4 +346,35 @@ test("applies AI chat board mutation in UI", async ({ page }) => {
   const doneColumn = page.getByTestId("column-col-done");
   await expect(doneColumn.getByTestId("card-card-1")).toBeVisible();
   await expect(page.getByText("Moved card-1 to done.")).toBeVisible();
+});
+
+test("voice transcript executes move and rename flow", async ({ page }) => {
+  await setupMockSpeechRecognition(page);
+  await setupBoardApiMock(page);
+  await login(page);
+
+  await page.getByRole("button", { name: /start listening/i }).click();
+  await page.evaluate(() => {
+    window.__emitSpeechTranscript("Move card-1 to done and rename backlog");
+  });
+  await page.getByRole("button", { name: /^send$/i }).click();
+
+  await expect(page.getByTestId("column-col-done").getByTestId("card-card-1")).toBeVisible();
+  await expect(page.getByLabel("Column title").first()).toHaveValue("AI Renamed");
+});
+
+test("voice transcript executes create edit delete flow", async ({ page }) => {
+  await setupMockSpeechRecognition(page);
+  await setupBoardApiMock(page);
+  await login(page);
+
+  await page.getByRole("button", { name: /start listening/i }).click();
+  await page.evaluate(() => {
+    window.__emitSpeechTranscript("Create card edit card-2 and delete card-3");
+  });
+  await page.getByRole("button", { name: /^send$/i }).click();
+
+  await expect(page.getByText("Voice card")).toBeVisible();
+  await expect(page.getByText("Signals Updated")).toBeVisible();
+  await expect(page.getByTestId("card-card-3")).toHaveCount(0);
 });

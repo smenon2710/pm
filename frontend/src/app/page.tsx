@@ -439,7 +439,7 @@ export default function Home() {
           </div>
 
           <form className="mt-5 space-y-3" onSubmit={handleSendChat}>
-            <label className="block">
+            <div className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)]">
                 Message
               </span>
@@ -493,7 +493,7 @@ export default function Home() {
                 placeholder="Move card-1 to Done"
                 className="w-full resize-y rounded-xl border border-[var(--stroke)] px-4 py-3 text-base leading-6 text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
               />
-            </label>
+            </div>
             {voiceError ? (
               <p className="rounded-xl border border-[var(--accent-yellow)]/40 bg-[var(--accent-yellow)]/15 px-3 py-2 text-sm font-medium text-[var(--navy-dark)]">
                 {voiceError}

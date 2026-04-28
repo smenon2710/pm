@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
@@ -11,6 +11,7 @@ const makeResponse = (body: unknown, ok = true) =>
   });
 
 class MockSpeechRecognition {
+  static instances: MockSpeechRecognition[] = [];
   continuous = false;
   interimResults = false;
   lang = "";
@@ -23,6 +24,17 @@ class MockSpeechRecognition {
   stop = vi.fn(() => {
     this.onend?.();
   });
+
+  constructor() {
+    MockSpeechRecognition.instances.push(this);
+  }
+
+  emitTranscript(transcript: string) {
+    this.onresult?.({
+      resultIndex: 0,
+      results: [{ 0: { transcript }, length: 1, isFinal: true }],
+    });
+  }
 }
 
 describe("Home auth gate", () => {
@@ -30,6 +42,7 @@ describe("Home auth gate", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    MockSpeechRecognition.instances = [];
     window.localStorage.clear();
     boardStore = structuredClone(initialData);
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -51,8 +64,35 @@ describe("Home auth gate", () => {
           message: string;
         };
         const nextBoard = structuredClone(boardStore);
-        if (payload.message.toLowerCase().includes("rename")) {
+        const message = payload.message.toLowerCase();
+        if (message.includes("move card-1")) {
+          nextBoard.columns[0].cardIds = nextBoard.columns[0].cardIds.filter((id) => id !== "card-1");
+          nextBoard.columns[4].cardIds = [...nextBoard.columns[4].cardIds, "card-1"];
+        }
+        if (message.includes("rename")) {
           nextBoard.columns[0].title = "AI Renamed";
+        }
+        if (message.includes("create")) {
+          nextBoard.cards["card-voice"] = {
+            id: "card-voice",
+            title: "Voice card",
+            details: "Created from voice command.",
+          };
+          nextBoard.columns[0].cardIds = [...nextBoard.columns[0].cardIds, "card-voice"];
+        }
+        if (message.includes("edit card-2")) {
+          nextBoard.cards["card-2"] = {
+            ...nextBoard.cards["card-2"],
+            title: "Signals Updated",
+            details: "Updated via voice",
+          };
+        }
+        if (message.includes("delete card-3")) {
+          delete nextBoard.cards["card-3"];
+          nextBoard.columns = nextBoard.columns.map((column) => ({
+            ...column,
+            cardIds: column.cardIds.filter((id) => id !== "card-3"),
+          }));
         }
         boardStore = nextBoard;
         return makeResponse({
@@ -185,20 +225,49 @@ describe("Home auth gate", () => {
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     const sidebar = await screen.findByRole("complementary", { name: /ai sidebar/i });
-    const startButton = within(sidebar).getByText("Start listening").closest("button");
-    expect(startButton).not.toBeNull();
-    if (!startButton) {
-      throw new Error("Start listening button not found.");
-    }
+    const startButton = within(sidebar).getByRole("button", { name: /start listening/i });
     await userEvent.click(startButton);
     expect(within(sidebar).getByText("Listening...")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Chat message"), "voice transcript");
-    const clearButton = within(sidebar).getByText("Clear").closest("button");
-    expect(clearButton).not.toBeNull();
-    if (!clearButton) {
-      throw new Error("Clear button not found.");
-    }
-    await userEvent.click(clearButton);
+    await userEvent.click(within(sidebar).getByRole("button", { name: /clear/i }));
     expect(screen.getByLabelText("Chat message")).toHaveValue("");
+  });
+
+  it("routes voice transcript through AI endpoint and applies move + rename updates", async () => {
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const sidebar = await screen.findByRole("complementary", { name: /ai sidebar/i });
+    await userEvent.click(within(sidebar).getByRole("button", { name: /start listening/i }));
+    const recognition = MockSpeechRecognition.instances.at(-1);
+    expect(recognition).toBeDefined();
+    await act(async () => {
+      recognition?.emitTranscript("Move card-1 to done and rename backlog");
+    });
+
+    await userEvent.click(within(sidebar).getByRole("button", { name: /^send$/i }));
+    expect(await screen.findByDisplayValue("AI Renamed")).toBeInTheDocument();
+    expect(await screen.findByTestId("column-col-done")).toHaveTextContent("Align roadmap themes");
+  });
+
+  it("applies create edit and delete operations from one voice transcript", async () => {
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const sidebar = await screen.findByRole("complementary", { name: /ai sidebar/i });
+    await userEvent.click(within(sidebar).getByRole("button", { name: /start listening/i }));
+    const recognition = MockSpeechRecognition.instances.at(-1);
+    await act(async () => {
+      recognition?.emitTranscript("Create card edit card-2 and delete card-3");
+    });
+
+    await userEvent.click(within(sidebar).getByRole("button", { name: /^send$/i }));
+    expect(await screen.findByText("Voice card")).toBeInTheDocument();
+    expect(await screen.findByText("Signals Updated")).toBeInTheDocument();
+    expect(screen.queryByText("Prototype analytics view")).not.toBeInTheDocument();
   });
 });
