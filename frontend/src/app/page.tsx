@@ -51,13 +51,6 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
 
-declare global {
-  interface Window {
-    SpeechRecognition?: SpeechRecognitionCtor;
-    webkitSpeechRecognition?: SpeechRecognitionCtor;
-  }
-}
-
 export default function Home() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [board, setBoard] = useState<BoardData>(() => initialData);
@@ -86,10 +79,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
     const Recognition =
-      (globalThis as Window).SpeechRecognition ??
-      window.SpeechRecognition ??
-      window.webkitSpeechRecognition;
+      speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
     if (!Recognition) {
       setIsVoiceSupported(false);
       return;
@@ -99,10 +94,11 @@ export default function Home() {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: unknown) => {
+      const speechEvent = event as SpeechRecognitionEventLike;
       let transcript = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        transcript += event.results[index][0].transcript;
+      for (let index = speechEvent.resultIndex; index < speechEvent.results.length; index += 1) {
+        transcript += speechEvent.results[index][0].transcript;
       }
       const nextValue = transcript.trim();
       setChatInput(nextValue);
@@ -113,19 +109,20 @@ export default function Home() {
       }
       setVoiceError("");
     };
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: unknown) => {
+      const speechError = event as { error: SpeechRecognitionError };
       setIsListening(false);
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      if (speechError.error === "not-allowed" || speechError.error === "service-not-allowed") {
         setVoiceError("Microphone access denied. Allow access and try again.");
         setVoiceStatusMessage("Microphone access denied.");
         return;
       }
-      if (event.error === "no-speech") {
+      if (speechError.error === "no-speech") {
         setVoiceError("No speech detected. Try again.");
         setVoiceStatusMessage("No speech detected.");
         return;
       }
-      if (event.error === "audio-capture") {
+      if (speechError.error === "audio-capture") {
         setVoiceError("No microphone available.");
         setVoiceStatusMessage("No microphone available.");
         return;
