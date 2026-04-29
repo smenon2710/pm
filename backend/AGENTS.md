@@ -2,20 +2,27 @@
 
 This directory contains the FastAPI backend for the Project Management MVP.
 
-Current Part 2 scope:
-- Serves hello-world HTML at `/` to validate backend web serving.
+Current implemented scope:
+- Serves static frontend build at `/` (fallback HTML if build not present).
 - Exposes `GET /api/health` returning `{"status":"ok"}`.
 - Includes backend tests in `backend/tests/`.
-- Uses `pyproject.toml` and is designed to run with `uv` in Docker.
+- Uses `pyproject.toml` and runs with `uv` in Docker.
 
-Current Part 6 scope:
+Board persistence scope:
 - Initializes SQLite database on backend startup if DB file is missing.
 - Creates and seeds `users` and `boards` tables.
 - Exposes `GET /api/board` to fetch board JSON for a user.
 - Exposes `PUT /api/board` to validate and persist board JSON updates.
 - Includes backend tests for schema init, happy paths, and invalid payloads.
 
+AI scope:
+- Exposes `GET /api/ai/smoke` for OpenRouter connectivity checks.
+- Exposes `POST /api/ai/board` for structured AI board-command processing.
+- Builds prompt context with board JSON, user message, and conversation history.
+- Parses/validates AI structured output and applies safe board operations server-side.
+- Prevents board corruption on malformed/invalid model outputs.
+
 ### Key files
-- `app/main.py`: FastAPI app with root HTML route and health endpoint.
-- `tests/test_main.py`: tests for root route and health endpoint.
+- `app/main.py`: FastAPI app with board APIs and AI endpoints.
+- `tests/test_main.py`: backend unit/integration tests for board + AI behavior.
 - `pyproject.toml`: dependencies and pytest configuration.

@@ -255,21 +255,21 @@ Goal: enable users to fully control the board with voice, including moving cards
 ### Part 11C: Voice UX Polish and Reliability
 
 #### Checklist
-- [ ] Add command preview/confirmation UX:
-  - [ ] Display recognized transcript before submit
-  - [ ] Display assistant confirmation of applied operations
-- [ ] Improve feedback and recovery:
-  - [ ] Actionable error copy for failed recognition and failed AI apply
-  - [ ] One-tap retry for recent voice command
-- [ ] Improve accessibility:
-  - [ ] Keyboard-operable voice controls
-  - [ ] Proper labels/announcements for listening and errors
-- [ ] Keep typed chat and drag-and-drop behavior regression-free.
+- [x] Add command preview/confirmation UX:
+  - [x] Display recognized transcript before submit
+  - [x] Display assistant confirmation of applied operations
+- [x] Improve feedback and recovery:
+  - [x] Actionable error copy for failed recognition and failed AI apply
+  - [x] One-tap retry for recent voice command
+- [x] Improve accessibility:
+  - [x] Keyboard-operable voice controls
+  - [x] Proper labels/announcements for listening and errors
+- [x] Keep typed chat and drag-and-drop behavior regression-free.
 
 #### Tests
-- [ ] Component tests for preview/confirmation/error visuals.
-- [ ] Accessibility checks for voice controls and state announcements.
-- [ ] Regression pass for typed chat and drag-and-drop board interactions.
+- [x] Component tests for preview/confirmation/error visuals.
+- [x] Accessibility checks for voice controls and state announcements.
+- [x] Regression pass for typed chat and drag-and-drop board interactions.
 
 #### Success Criteria
 - Voice control experience is clear, reliable, and accessible.

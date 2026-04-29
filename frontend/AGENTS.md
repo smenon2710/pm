@@ -1,11 +1,11 @@
 # Frontend Codebase Guide
 
-This document describes the existing frontend-only implementation in `frontend/`.
+This document describes the current frontend implementation in `frontend/`.
 
 ## Purpose
 
-- Next.js app that renders a single-page Kanban board demo.
-- Current state is purely client-side and in-memory (no backend persistence yet).
+- Next.js app that renders an auth-gated, backend-persisted Kanban board with AI chat + voice controls.
+- Current state is integrated with backend APIs for board persistence and AI-driven board updates.
 - Includes unit tests (Vitest + Testing Library) and e2e tests (Playwright).
 
 ## Tech Stack
@@ -29,7 +29,7 @@ This document describes the existing frontend-only implementation in `frontend/`
 ## Structure Overview
 
 - `src/app/page.tsx`
-  - Renders `<KanbanBoard />` as the home page.
+  - Renders login gate, board container, AI sidebar chat, and voice controls.
 - `src/components/KanbanBoard.tsx`
   - Top-level board state and interaction orchestration.
 - `src/components/KanbanColumn.tsx`
@@ -51,14 +51,17 @@ This document describes the existing frontend-only implementation in `frontend/`
 
 ## Current Behavior
 
-- Board initializes from `initialData` in `src/lib/kanban.ts`.
-- Fixed five columns are displayed by default.
+- Initial board loads from backend after login (`GET /api/board`).
+- Board edits persist to backend (`PUT /api/board`).
+- Fixed five columns are displayed by default (from seeded board JSON).
 - User can:
   - rename column titles inline
   - drag and drop cards within/across columns
   - add a new card to a column
   - remove an existing card
-- All changes are local to runtime memory and reset on refresh.
+- AI sidebar can submit typed commands to backend AI endpoint (`POST /api/ai/board`).
+- Voice controls can capture transcript, preview command text, and resend recent command.
+- Changes persist across reload through backend persistence.
 
 ## Data Model (Current)
 
@@ -68,8 +71,8 @@ This document describes the existing frontend-only implementation in `frontend/`
   - `columns: Column[]`
   - `cards: Record<string, Card>`
 
-## Notes for Future Integration
+## Integration Notes
 
-- Frontend currently assumes immediate local state updates.
-- Backend integration should preserve existing interaction behavior while replacing the in-memory source with API-backed persistence.
-- Existing tests provide a base for regression checks during integration phases.
+- Board save uses immediate UI update followed by backend persistence sync.
+- AI and voice command flows share the same backend endpoint and board update application path.
+- Existing unit + e2e tests cover typed chat, voice command flows, and drag-and-drop regressions.

@@ -75,6 +75,9 @@ export default function Home() {
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [lastTranscript, setLastTranscript] = useState("");
+  const [lastVoiceCommand, setLastVoiceCommand] = useState("");
+  const [voiceStatusMessage, setVoiceStatusMessage] = useState("");
+  const [lastAppliedSummary, setLastAppliedSummary] = useState("");
   const skipNextSave = useRef(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
@@ -105,6 +108,8 @@ export default function Home() {
       setChatInput(nextValue);
       if (nextValue) {
         setLastTranscript(nextValue);
+        setLastVoiceCommand(nextValue);
+        setVoiceStatusMessage("Voice transcript captured. You can edit before sending.");
       }
       setVoiceError("");
     };
@@ -112,20 +117,25 @@ export default function Home() {
       setIsListening(false);
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
         setVoiceError("Microphone access denied. Allow access and try again.");
+        setVoiceStatusMessage("Microphone access denied.");
         return;
       }
       if (event.error === "no-speech") {
         setVoiceError("No speech detected. Try again.");
+        setVoiceStatusMessage("No speech detected.");
         return;
       }
       if (event.error === "audio-capture") {
         setVoiceError("No microphone available.");
+        setVoiceStatusMessage("No microphone available.");
         return;
       }
       setVoiceError("Voice recognition failed. Please try again.");
+      setVoiceStatusMessage("Voice recognition failed.");
     };
     recognition.onend = () => {
       setIsListening(false);
+      setVoiceStatusMessage("Stopped listening.");
     };
     recognitionRef.current = recognition;
     return () => {
@@ -160,6 +170,9 @@ export default function Home() {
     setIsListening(false);
     setVoiceError("");
     setLastTranscript("");
+    setLastVoiceCommand("");
+    setVoiceStatusMessage("");
+    setLastAppliedSummary("");
     recognitionRef.current?.stop();
   };
 
@@ -229,13 +242,11 @@ export default function Home() {
     void persistBoard();
   }, [board, isAuthed, isBoardReady, isBoardLoading]);
 
-  const handleSendChat = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const sendChatMessage = async (message: string) => {
     if (isListening) {
       recognitionRef.current?.stop();
       setIsListening(false);
     }
-    const message = chatInput.trim();
     if (!message || isAiLoading) {
       return;
     }
@@ -280,6 +291,7 @@ export default function Home() {
       skipNextSave.current = true;
       setBoard(data.board);
       setChatHistory((prev) => [...prev, { role: "assistant", content: data.assistantMessage! }]);
+      setLastAppliedSummary(data.assistantMessage);
     } catch (error) {
       const detail =
         error instanceof Error && error.message
@@ -291,29 +303,39 @@ export default function Home() {
     }
   };
 
+  const handleSendChat = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    await sendChatMessage(chatInput.trim());
+  };
+
   const startListening = () => {
     if (!isVoiceSupported || !recognitionRef.current) {
       setVoiceError("Voice input is not supported on this browser.");
+      setVoiceStatusMessage("Voice input is not supported on this browser.");
       return;
     }
     try {
       setVoiceError("");
       recognitionRef.current.start();
       setIsListening(true);
+      setVoiceStatusMessage("Listening for voice command.");
     } catch {
       setVoiceError("Unable to start voice recognition.");
+      setVoiceStatusMessage("Unable to start voice recognition.");
     }
   };
 
   const stopListening = () => {
     recognitionRef.current?.stop();
     setIsListening(false);
+    setVoiceStatusMessage("Stopped listening.");
   };
 
   const clearTranscript = () => {
     setChatInput("");
     setLastTranscript("");
     setVoiceError("");
+    setVoiceStatusMessage("Voice transcript cleared.");
   };
 
   const retryTranscript = () => {
@@ -321,6 +343,13 @@ export default function Home() {
       setChatInput(lastTranscript);
     }
     startListening();
+  };
+
+  const resendLastVoiceCommand = async () => {
+    if (!lastVoiceCommand || isAiLoading) {
+      return;
+    }
+    await sendChatMessage(lastVoiceCommand);
   };
 
   if (!isAuthed) {
@@ -449,6 +478,7 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={isListening ? stopListening : startListening}
+                      aria-pressed={isListening}
                       className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
                         isListening
                           ? "border-[var(--secondary-purple)] text-[var(--secondary-purple)]"
@@ -470,6 +500,14 @@ export default function Home() {
                       className="rounded-lg border border-[var(--stroke)] px-3 py-1.5 text-sm font-semibold text-[var(--gray-text)]"
                     >
                       Clear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resendLastVoiceCommand}
+                      disabled={!lastVoiceCommand || isAiLoading}
+                      className="rounded-lg border border-[var(--stroke)] px-3 py-1.5 text-sm font-semibold text-[var(--navy-dark)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Resend last voice command
                     </button>
                     <span
                       className={`text-sm font-medium ${
@@ -493,6 +531,14 @@ export default function Home() {
                 placeholder="Move card-1 to Done"
                 className="w-full resize-y rounded-xl border border-[var(--stroke)] px-4 py-3 text-base leading-6 text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
               />
+              {chatInput.trim() ? (
+                <p className="mt-2 rounded-lg bg-[var(--surface)] px-3 py-2 text-sm text-[var(--gray-text)]">
+                  Command preview: {chatInput}
+                </p>
+              ) : null}
+            </div>
+            <div className="sr-only" aria-live="polite">
+              {voiceStatusMessage}
             </div>
             {voiceError ? (
               <p className="rounded-xl border border-[var(--accent-yellow)]/40 bg-[var(--accent-yellow)]/15 px-3 py-2 text-sm font-medium text-[var(--navy-dark)]">
@@ -511,6 +557,11 @@ export default function Home() {
             >
               {isAiLoading ? "Sending..." : "Send"}
             </button>
+            {lastAppliedSummary ? (
+              <p className="rounded-xl border border-[var(--primary-blue)]/30 bg-[var(--primary-blue)]/10 px-3 py-2 text-sm text-[var(--navy-dark)]">
+                Last applied: {lastAppliedSummary}
+              </p>
+            ) : null}
           </form>
         </aside>
       </div>

@@ -250,6 +250,7 @@ describe("Home auth gate", () => {
     await userEvent.click(within(sidebar).getByRole("button", { name: /^send$/i }));
     expect(await screen.findByDisplayValue("AI Renamed")).toBeInTheDocument();
     expect(await screen.findByTestId("column-col-done")).toHaveTextContent("Align roadmap themes");
+    expect(await screen.findByText(/last applied:/i)).toBeInTheDocument();
   });
 
   it("applies create edit and delete operations from one voice transcript", async () => {
@@ -269,5 +270,28 @@ describe("Home auth gate", () => {
     expect(await screen.findByText("Voice card")).toBeInTheDocument();
     expect(await screen.findByText("Signals Updated")).toBeInTheDocument();
     expect(screen.queryByText("Prototype analytics view")).not.toBeInTheDocument();
+  });
+
+  it("shows command preview and can resend last voice command", async () => {
+    render(<Home />);
+    await userEvent.type(screen.getByLabelText("Username"), "user");
+    await userEvent.type(screen.getByLabelText("Password"), "password");
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    const sidebar = await screen.findByRole("complementary", { name: /ai sidebar/i });
+    await userEvent.click(within(sidebar).getByRole("button", { name: /start listening/i }));
+    const recognition = MockSpeechRecognition.instances.at(-1);
+    await act(async () => {
+      recognition?.emitTranscript("Rename backlog");
+    });
+    expect(await screen.findByText(/command preview:/i)).toBeInTheDocument();
+
+    await userEvent.click(within(sidebar).getByRole("button", { name: /resend last voice command/i }));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/ai/board",
+      expect.objectContaining({
+        method: "POST",
+      })
+    );
   });
 });

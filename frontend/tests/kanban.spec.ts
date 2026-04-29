@@ -345,7 +345,7 @@ test("applies AI chat board mutation in UI", async ({ page }) => {
 
   const doneColumn = page.getByTestId("column-col-done");
   await expect(doneColumn.getByTestId("card-card-1")).toBeVisible();
-  await expect(page.getByText("Moved card-1 to done.")).toBeVisible();
+  await expect(page.getByTestId("chat-history").getByText("Moved card-1 to done.")).toBeVisible();
 });
 
 test("voice transcript executes move and rename flow", async ({ page }) => {
@@ -377,4 +377,20 @@ test("voice transcript executes create edit delete flow", async ({ page }) => {
   await expect(page.getByText("Voice card")).toBeVisible();
   await expect(page.getByText("Signals Updated")).toBeVisible();
   await expect(page.getByTestId("card-card-3")).toHaveCount(0);
+});
+
+test("voice command preview and resend action work", async ({ page }) => {
+  await setupMockSpeechRecognition(page);
+  await setupBoardApiMock(page);
+  await login(page);
+
+  await page.getByRole("button", { name: /start listening/i }).click();
+  await page.evaluate(() => {
+    window.__emitSpeechTranscript("Rename backlog");
+  });
+
+  await expect(page.getByText(/command preview:/i)).toBeVisible();
+  await page.getByRole("button", { name: /resend last voice command/i }).click();
+  await expect(page.getByLabel("Column title").first()).toHaveValue("AI Renamed");
+  await expect(page.getByText(/last applied:/i)).toBeVisible();
 });
