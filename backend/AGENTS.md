@@ -23,6 +23,9 @@ AI scope:
 - Prevents board corruption on malformed/invalid model outputs.
 
 ### Key files
-- `app/main.py`: FastAPI app with board APIs and AI endpoints.
+- `app/main.py`: FastAPI app factory with route definitions.
+- `app/config.py`: Constants, seed data, and board validation.
+- `app/database.py`: SQLite initialization, load/save functions.
+- `app/ai.py`: OpenRouter client, response parsing, board operations.
 - `tests/test_main.py`: backend unit/integration tests for board + AI behavior.
 - `pyproject.toml`: dependencies and pytest configuration.

@@ -291,7 +291,7 @@ Goal: enable users to fully control the board with voice, including moving cards
 - Frontend e2e: `npm run test:e2e` (from `frontend/`)
 - Backend unit/integration: `pytest` (from `backend/`, once created)
 
-## Implemented Design Decisions (Through Part 10)
+## Implemented Design Decisions (Through Part 11C)
 
 - Backend startup uses FastAPI lifespan to initialize SQLite automatically at `data/pm.db` (override supported via `PM_DB_PATH`).
 - DB seeding guarantees default `user` and one seeded board row when missing.
@@ -313,6 +313,11 @@ Goal: enable users to fully control the board with voice, including moving cards
   - submits user messages to `/api/ai/board`
   - applies returned board updates immediately
   - surfaces backend error details in the UI
+- Frontend voice command layer:
+  - captures speech transcript into editable chat input
+  - supports retry/clear/resend-last-command controls
+  - shows command preview and "last applied" confirmation
+  - includes accessibility status announcements for listening/error states
 - Frontend and backend are built/run in one Docker image using multi-stage build:
   - Next.js static export served by FastAPI at `/`
   - backend APIs remain under `/api/*`
