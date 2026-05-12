@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 
 declare global {
   interface Window {
@@ -68,151 +68,94 @@ const boardFixture = {
   },
 };
 
+type BoardCard = { id: string; title: string; details: string };
+type BoardStore = {
+  columns: { id: string; title: string; cardIds: string[] }[];
+  cards: Record<string, BoardCard>;
+};
+
+const fulfillJson = (route: Route, body: unknown) =>
+  route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+
 const setupBoardApiMock = async (page: Page) => {
-  let boardStore = JSON.parse(JSON.stringify(boardFixture));
-  const columnById = (id: string) =>
-    boardStore.columns.find((column: { id: string }) => column.id === id);
+  let boardStore: BoardStore = structuredClone(boardFixture);
+  const columnById = (id: string) => boardStore.columns.find((column) => column.id === id);
+
   await page.route("**/api/board**", async (route) => {
     const request = route.request();
     if (request.method() === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ username: "user", board: boardStore }),
-      });
+      await fulfillJson(route, { username: "user", board: boardStore });
       return;
     }
     if (request.method() === "PUT") {
-      const payload = request.postDataJSON() as { board: typeof boardStore };
+      const payload = request.postDataJSON() as { board: BoardStore };
       boardStore = payload.board;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ ok: true }),
-      });
+      await fulfillJson(route, { ok: true });
       return;
     }
     await route.fallback();
   });
+
   await page.route("**/api/ai/board", async (route) => {
-    const request = route.request();
-    if (request.method() !== "POST") {
+    if (route.request().method() !== "POST") {
       await route.fallback();
       return;
     }
-    const payload = request.postDataJSON() as { message?: string };
+    const payload = route.request().postDataJSON() as { message?: string };
     const message = (payload.message ?? "").toLowerCase();
 
     if (message.includes("move card-1")) {
       const backlog = columnById("col-backlog");
       const done = columnById("col-done");
       if (backlog && done) {
-        backlog.cardIds = backlog.cardIds.filter((id: string) => id !== "card-1");
-        done.cardIds = ["card-1", ...done.cardIds.filter((id: string) => id !== "card-1")];
+        backlog.cardIds = backlog.cardIds.filter((id) => id !== "card-1");
+        done.cardIds = ["card-1", ...done.cardIds.filter((id) => id !== "card-1")];
       }
-      if (message.includes("rename")) {
-        const backlogColumn = columnById("col-backlog");
-        if (backlogColumn) {
-          backlogColumn.title = "AI Renamed";
-        }
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          assistantMessage: message.includes("rename")
-            ? "Moved card-1 and renamed backlog."
-            : "Moved card-1 to done.",
-          operations: message.includes("rename")
-            ? [
-                {
-                  type: "move_card",
-                  cardId: "card-1",
-                  fromColumnId: "col-backlog",
-                  toColumnId: "col-done",
-                  position: 0,
-                },
-                { type: "rename_column", columnId: "col-backlog", title: "AI Renamed" },
-              ]
-            : [
-            {
-              type: "move_card",
-              cardId: "card-1",
-              fromColumnId: "col-backlog",
-              toColumnId: "col-done",
-              position: 0,
-            },
-          ],
-          board: boardStore,
-        }),
-      });
-      return;
     }
     if (message.includes("rename")) {
       const backlog = columnById("col-backlog");
-      if (backlog) {
-        backlog.title = "AI Renamed";
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          assistantMessage: "Renamed backlog column.",
-          operations: [{ type: "rename_column", columnId: "col-backlog", title: "AI Renamed" }],
-          board: boardStore,
-        }),
-      });
-      return;
+      if (backlog) backlog.title = "AI Renamed";
     }
-    if (message.includes("create") || message.includes("edit card-2") || message.includes("delete card-3")) {
-      if (message.includes("create")) {
-        boardStore.cards["card-voice"] = {
-          id: "card-voice",
-          title: "Voice card",
-          details: "Created from voice command.",
-        };
-        const backlog = columnById("col-backlog");
-        if (backlog && !backlog.cardIds.includes("card-voice")) {
-          backlog.cardIds.push("card-voice");
-        }
+    if (message.includes("create")) {
+      boardStore.cards["card-voice"] = {
+        id: "card-voice",
+        title: "Voice card",
+        details: "Created from voice command.",
+      };
+      const backlog = columnById("col-backlog");
+      if (backlog && !backlog.cardIds.includes("card-voice")) {
+        backlog.cardIds.push("card-voice");
       }
-      if (message.includes("edit card-2")) {
-        boardStore.cards["card-2"] = {
-          ...boardStore.cards["card-2"],
-          title: "Signals Updated",
-          details: "Updated via voice",
-        };
-      }
-      if (message.includes("delete card-3")) {
-        delete boardStore.cards["card-3"];
-        boardStore.columns = boardStore.columns.map(
-          (column: { id: string; title: string; cardIds: string[] }) => ({
-            ...column,
-            cardIds: column.cardIds.filter((id) => id !== "card-3"),
-          })
-        );
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          assistantMessage: "Applied requested updates.",
-          operations: [],
-          board: boardStore,
-        }),
-      });
-      return;
+    }
+    if (message.includes("edit card-2")) {
+      boardStore.cards["card-2"] = {
+        ...boardStore.cards["card-2"],
+        title: "Signals Updated",
+        details: "Updated via voice",
+      };
+    }
+    if (message.includes("delete card-3")) {
+      delete boardStore.cards["card-3"];
+      boardStore.columns = boardStore.columns.map((column) => ({
+        ...column,
+        cardIds: column.cardIds.filter((id) => id !== "card-3"),
+      }));
     }
 
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        assistantMessage: "No board changes needed.",
-        operations: [],
-        board: boardStore,
-      }),
-    });
+    let assistantMessage = "Applied requested updates.";
+    if (message.includes("move card-1") && message.includes("rename")) {
+      assistantMessage = "Moved card-1 and renamed backlog.";
+    } else if (message.includes("move card-1")) {
+      assistantMessage = "Moved card-1 to done.";
+    } else if (message.includes("rename")) {
+      assistantMessage = "Renamed backlog column.";
+    }
+
+    await fulfillJson(route, { assistantMessage, operations: [], board: boardStore });
   });
 };
 
@@ -222,27 +165,21 @@ const setupMockSpeechRecognition = async (page: Page) => {
       continuous = false;
       interimResults = false;
       lang = "en-US";
-      onresult = null;
-      onerror = null;
-      onend = null;
-      static latest = null;
+      onresult: ((event: unknown) => void) | null = null;
+      onerror: ((event: unknown) => void) | null = null;
+      onend: (() => void) | null = null;
+      static latest: MockSpeechRecognition | null = null;
       constructor() {
         MockSpeechRecognition.latest = this;
       }
       start() {}
       stop() {
-        if (this.onend) {
-          this.onend();
-        }
+        this.onend?.();
       }
     }
     window.SpeechRecognition = MockSpeechRecognition;
     window.__emitSpeechTranscript = (transcript) => {
-      const recognition = MockSpeechRecognition.latest;
-      if (!recognition || !recognition.onresult) {
-        return;
-      }
-      recognition.onresult({
+      MockSpeechRecognition.latest?.onresult?.({
         resultIndex: 0,
         results: [{ 0: { transcript }, isFinal: true, length: 1 }],
       });

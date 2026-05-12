@@ -70,7 +70,7 @@ def build_ai_board_prompt(
             "assistantMessage": "string",
             "operations": [
                 {
-                    "type": "create_card|update_card|move_card",
+                    "type": "create_card|update_card|move_card|delete_card",
                     "cardId": "string",
                     "title": "string (create/update only)",
                     "details": "string (create/update only)",
@@ -87,6 +87,7 @@ def build_ai_board_prompt(
             "Only use existing column ids.",
             "For update_card, include title and details values to set.",
             "For move_card, cardId must already exist.",
+            "For delete_card, cardId must exist and will be removed from all columns.",
         ],
         "conversationHistory": history,
         "currentBoard": board,
@@ -96,25 +97,8 @@ def build_ai_board_prompt(
 
 
 def parse_ai_structured_output(content: str) -> tuple[str, list[dict[str, Any]]]:
-    cleaned_content = content.strip()
-    if cleaned_content.startswith("```"):
-        parts = cleaned_content.split("```")
-        if len(parts) >= 3:
-            cleaned_content = parts[1]
-            if cleaned_content.lower().startswith("json"):
-                cleaned_content = cleaned_content[4:]
-            cleaned_content = cleaned_content.strip()
-    try:
-        parsed = json.loads(cleaned_content)
-    except json.JSONDecodeError as exc:
-        start = cleaned_content.find("{")
-        end = cleaned_content.rfind("}")
-        if start == -1 or end == -1 or start >= end:
-            raise RuntimeError("Model response was not valid JSON.") from exc
-        try:
-            parsed = json.loads(cleaned_content[start : end + 1])
-        except json.JSONDecodeError as inner_exc:
-            raise RuntimeError("Model response was not valid JSON.") from inner_exc
+    cleaned = _strip_code_fence(content.strip())
+    parsed = _load_json_or_embedded(cleaned)
     if not isinstance(parsed, dict):
         raise RuntimeError("Model response must be a JSON object.")
     assistant_message = parsed.get("assistantMessage")
@@ -126,10 +110,35 @@ def parse_ai_structured_output(content: str) -> tuple[str, list[dict[str, Any]]]
     for operation in operations:
         if not isinstance(operation, dict):
             raise RuntimeError("Each operation must be an object.")
-        op_type = operation.get("type")
-        if op_type not in {"create_card", "update_card", "move_card"}:
-            raise RuntimeError(f"Unsupported operation type: {op_type}.")
+        if operation.get("type") not in {"create_card", "update_card", "move_card", "delete_card"}:
+            raise RuntimeError(f"Unsupported operation type: {operation.get('type')}.")
     return assistant_message.strip(), operations
+
+
+def _strip_code_fence(text: str) -> str:
+    if not text.startswith("```"):
+        return text
+    parts = text.split("```")
+    if len(parts) < 3:
+        return text
+    inner = parts[1]
+    if inner.lower().startswith("json"):
+        inner = inner[4:]
+    return inner.strip()
+
+
+def _load_json_or_embedded(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end <= start:
+            raise RuntimeError("Model response was not valid JSON.") from exc
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError as inner_exc:
+            raise RuntimeError("Model response was not valid JSON.") from inner_exc
 
 
 def _require_string_field(operation: dict[str, Any], field: str, op_type: str) -> str:
@@ -141,59 +150,88 @@ def _require_string_field(operation: dict[str, Any], field: str, op_type: str) -
 
 def apply_board_operations(board: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
     updated = deepcopy(board)
-    columns: list[dict[str, Any]] = updated.get("columns", [])
-    cards: dict[str, dict[str, str]] = updated.get("cards", {})
-    column_by_id: dict[str, dict[str, Any]] = {
-        col["id"]: col for col in columns if isinstance(col, dict) and isinstance(col.get("id"), str)
-    }
+    cards: dict[str, dict[str, str]] = updated["cards"]
+    column_by_id: dict[str, dict[str, Any]] = {col["id"]: col for col in updated["columns"]}
+
     for operation in operations:
         op_type = operation["type"]
         if op_type == "create_card":
-            card_id = operation.get("cardId")
-            if not isinstance(card_id, str) or not card_id:
-                card_id = f"card-{uuid.uuid4().hex[:8]}"
-            if card_id in cards:
-                raise RuntimeError(f"create_card target already exists: {card_id}.")
-            column_id = _require_string_field(operation, "columnId", op_type)
-            target_column = column_by_id.get(column_id)
-            if target_column is None:
-                raise RuntimeError(f"create_card references unknown columnId {column_id}.")
-            title = _require_string_field(operation, "title", op_type)
-            details = _require_string_field(operation, "details", op_type)
-            cards[card_id] = {"id": card_id, "title": title, "details": details}
-            target_column["cardIds"].append(card_id)
-            continue
+            _apply_create_card(operation, cards, column_by_id)
+        elif op_type == "update_card":
+            _apply_update_card(operation, cards)
+        elif op_type == "move_card":
+            _apply_move_card(operation, cards, column_by_id)
+        elif op_type == "delete_card":
+            _apply_delete_card(operation, cards, column_by_id)
 
-        card_id = _require_string_field(operation, "cardId", op_type)
-        card = cards.get(card_id)
-        if card is None:
-            raise RuntimeError(f"{op_type} references unknown cardId {card_id}.")
-
-        if op_type == "update_card":
-            title = _require_string_field(operation, "title", op_type)
-            details = _require_string_field(operation, "details", op_type)
-            card["title"] = title
-            card["details"] = details
-            continue
-
-        if op_type == "move_card":
-            from_column_id = _require_string_field(operation, "fromColumnId", op_type)
-            to_column_id = _require_string_field(operation, "toColumnId", op_type)
-            from_column = column_by_id.get(from_column_id)
-            to_column = column_by_id.get(to_column_id)
-            if from_column is None or to_column is None:
-                raise RuntimeError("move_card references unknown from/to column id.")
-            if card_id not in from_column["cardIds"]:
-                raise RuntimeError(f"move_card cardId {card_id} is not in {from_column_id}.")
-            from_column["cardIds"].remove(card_id)
-            position = operation.get("position")
-            if not isinstance(position, int) or position < 0 or position > len(to_column["cardIds"]):
-                to_column["cardIds"].append(card_id)
-            else:
-                to_column["cardIds"].insert(position, card_id)
-            continue
-
-    is_valid, error_detail = validate_board_payload(updated)
+    is_valid, detail = validate_board_payload(updated)
     if not is_valid:
-        raise RuntimeError(f"Model operations produce invalid board: {error_detail}")
+        raise RuntimeError(f"Model operations produce invalid board: {detail}")
     return updated
+
+
+def _apply_create_card(
+    operation: dict[str, Any],
+    cards: dict[str, dict[str, str]],
+    column_by_id: dict[str, dict[str, Any]],
+) -> None:
+    card_id = operation.get("cardId")
+    if not isinstance(card_id, str) or not card_id:
+        card_id = f"card-{uuid.uuid4().hex[:8]}"
+    if card_id in cards:
+        raise RuntimeError(f"create_card target already exists: {card_id}.")
+    column_id = _require_string_field(operation, "columnId", "create_card")
+    target_column = column_by_id.get(column_id)
+    if target_column is None:
+        raise RuntimeError(f"create_card references unknown columnId {column_id}.")
+    title = _require_string_field(operation, "title", "create_card")
+    details = _require_string_field(operation, "details", "create_card")
+    cards[card_id] = {"id": card_id, "title": title, "details": details}
+    target_column["cardIds"].append(card_id)
+
+
+def _apply_update_card(operation: dict[str, Any], cards: dict[str, dict[str, str]]) -> None:
+    card_id = _require_string_field(operation, "cardId", "update_card")
+    card = cards.get(card_id)
+    if card is None:
+        raise RuntimeError(f"update_card references unknown cardId {card_id}.")
+    card["title"] = _require_string_field(operation, "title", "update_card")
+    card["details"] = _require_string_field(operation, "details", "update_card")
+
+
+def _apply_move_card(
+    operation: dict[str, Any],
+    cards: dict[str, dict[str, str]],
+    column_by_id: dict[str, dict[str, Any]],
+) -> None:
+    card_id = _require_string_field(operation, "cardId", "move_card")
+    if card_id not in cards:
+        raise RuntimeError(f"move_card references unknown cardId {card_id}.")
+    from_column_id = _require_string_field(operation, "fromColumnId", "move_card")
+    to_column_id = _require_string_field(operation, "toColumnId", "move_card")
+    from_column = column_by_id.get(from_column_id)
+    to_column = column_by_id.get(to_column_id)
+    if from_column is None or to_column is None:
+        raise RuntimeError("move_card references unknown from/to column id.")
+    if card_id not in from_column["cardIds"]:
+        raise RuntimeError(f"move_card cardId {card_id} is not in {from_column_id}.")
+    from_column["cardIds"].remove(card_id)
+    position = operation.get("position")
+    if isinstance(position, int) and 0 <= position <= len(to_column["cardIds"]):
+        to_column["cardIds"].insert(position, card_id)
+    else:
+        to_column["cardIds"].append(card_id)
+
+
+def _apply_delete_card(
+    operation: dict[str, Any],
+    cards: dict[str, dict[str, str]],
+    column_by_id: dict[str, dict[str, Any]],
+) -> None:
+    card_id = _require_string_field(operation, "cardId", "delete_card")
+    if card_id not in cards:
+        raise RuntimeError(f"delete_card references unknown cardId {card_id}.")
+    del cards[card_id]
+    for column in column_by_id.values():
+        if card_id in column["cardIds"]:
+            column["cardIds"].remove(card_id)

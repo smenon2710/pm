@@ -14,8 +14,6 @@ This project is building a Project Management App. Key features:
 
 For the MVP, there will only be a user sign in (hardcoded to 'user' and 'password') but the database will support multiple users for future.
 
-For the MVP, there will only be 1 Kanban board per signed in user.
-
 For the MVP, this will run locally (in a docker container)
 
 ## Technical Decisions
@@ -30,7 +28,7 @@ For the MVP, this will run locally (in a docker container)
 - Start and Stop server scripts for Mac, PC, Linux in scripts/
 - Start scripts should pass `.env` into Docker (`--env-file`) when present
 
-## Current State (Implemented Through Part 11C)
+## Current State (Implemented Through Part 12)
 
 - Auth-gated board is implemented with hardcoded credentials (`user` / `password`)
 - Board data is persisted in SQLite via backend APIs (`GET /api/board`, `PUT /api/board`)
@@ -38,9 +36,10 @@ For the MVP, this will run locally (in a docker container)
 - OpenRouter integration is implemented:
   - `GET /api/ai/smoke` for connectivity checks
   - `POST /api/ai/board` for structured AI operations
-- Frontend includes an AI sidebar chat that can trigger card create/edit/move via backend
+- Frontend includes an AI sidebar chat that can trigger card create/edit/move/delete via backend
 - Frontend supports voice capture for commands, transcript preview, resend/retry actions, and accessibility status announcements
 - Frontend and backend run together in Docker with static Next.js served by FastAPI
+- Multi-board support: users can create, switch between, and delete multiple boards
 
 ## Color Scheme
 

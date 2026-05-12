@@ -10,9 +10,13 @@ Current implemented scope:
 
 Board persistence scope:
 - Initializes SQLite database on backend startup if DB file is missing.
-- Creates and seeds `users` and `boards` tables.
-- Exposes `GET /api/board` to fetch board JSON for a user.
-- Exposes `PUT /api/board` to validate and persist board JSON updates.
+- Creates and seeds `users` and `boards` tables (multiple boards per user supported).
+- Exposes `GET /api/board` to fetch board JSON for a user (optionally by board_id).
+- Exposes `PUT /api/board` to validate and persist board JSON updates (optionally by board_id).
+- Exposes `GET /api/boards` to list all boards for a user.
+- Exposes `POST /api/boards` to create a new board.
+- Exposes `DELETE /api/boards/{board_id}` to delete a board.
+- Exposes `PUT /api/boards/{board_id}` to rename a board.
 - Includes backend tests for schema init, happy paths, and invalid payloads.
 
 AI scope:

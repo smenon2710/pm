@@ -14,7 +14,15 @@ from .ai import (
     request_openrouter_completion,
 )
 from .config import DEFAULT_DB_PATH, DEFAULT_USERNAME, validate_board_payload
-from .database import init_db, load_board_for_user, save_board_for_user
+from .database import (
+    create_board_for_user,
+    delete_board_for_user,
+    init_db,
+    list_boards_for_user,
+    load_board_for_user,
+    rename_board_for_user,
+    save_board_for_user,
+)
 
 
 def create_app(db_path: Path | None = None) -> FastAPI:
@@ -32,23 +40,67 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/api/board")
-    def get_board(username: str = Query(default=DEFAULT_USERNAME)) -> dict[str, Any]:
-        board = load_board_for_user(resolved_db_path, username)
+    def get_board(
+        username: str = Query(default=DEFAULT_USERNAME),
+        board_id: int | None = Query(default=None),
+    ) -> dict[str, Any]:
+        board = load_board_for_user(resolved_db_path, username, board_id)
         if board is None:
-            raise HTTPException(status_code=404, detail="Board not found for user.")
+            raise HTTPException(status_code=404, detail="Board not found.")
         return {"username": username, "board": board}
 
     @app.put("/api/board")
     def put_board(payload: dict[str, Any]) -> dict[str, Any]:
         username = payload.get("username")
         board = payload.get("board")
+        board_id = payload.get("board_id")
         if not isinstance(username, str) or not username:
             raise HTTPException(status_code=400, detail="username is required.")
-        is_valid, error = validate_board_payload(board)
+        is_valid, detail = validate_board_payload(board)
         if not is_valid:
-            raise HTTPException(status_code=400, detail=error)
-        if not save_board_for_user(resolved_db_path, username, board):
-            raise HTTPException(status_code=404, detail="Board not found for user.")
+            raise HTTPException(status_code=400, detail=detail)
+        if not save_board_for_user(resolved_db_path, username, board, board_id):
+            raise HTTPException(status_code=404, detail="Board not found.")
+        return {"ok": True}
+
+    @app.get("/api/boards")
+    def get_boards(username: str = Query(default=DEFAULT_USERNAME)) -> dict[str, Any]:
+        boards = list_boards_for_user(resolved_db_path, username)
+        return {"boards": boards}
+
+    @app.post("/api/boards")
+    def post_boards(payload: dict[str, Any]) -> dict[str, Any]:
+        username = payload.get("username")
+        title = payload.get("title", "My Board")
+        if not isinstance(username, str) or not username:
+            raise HTTPException(status_code=400, detail="username is required.")
+        if not isinstance(title, str):
+            raise HTTPException(status_code=400, detail="title must be a string.")
+        result = create_board_for_user(resolved_db_path, username, title)
+        if result is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+        return result
+
+    @app.delete("/api/boards/{board_id}")
+    def delete_board(
+        board_id: int,
+        username: str = Query(default=DEFAULT_USERNAME),
+    ) -> dict[str, Any]:
+        if not delete_board_for_user(resolved_db_path, username, board_id):
+            raise HTTPException(status_code=400, detail="Cannot delete the last board.")
+        return {"ok": True}
+
+    @app.put("/api/boards/{board_id}")
+    def put_board_rename(
+        board_id: int,
+        payload: dict[str, Any],
+        username: str = Query(default=DEFAULT_USERNAME),
+    ) -> dict[str, Any]:
+        title = payload.get("title")
+        if not isinstance(title, str) or not title:
+            raise HTTPException(status_code=400, detail="title is required.")
+        if not rename_board_for_user(resolved_db_path, username, board_id, title):
+            raise HTTPException(status_code=404, detail="Board not found.")
         return {"ok": True}
 
     @app.get("/api/ai/smoke")
@@ -70,6 +122,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         username = payload.get("username")
         user_message = payload.get("message")
         history = payload.get("history", [])
+        board_id = payload.get("board_id")
         if not isinstance(username, str) or not username:
             raise HTTPException(status_code=400, detail="username is required.")
         if not isinstance(user_message, str) or not user_message.strip():
@@ -87,9 +140,9 @@ def create_app(db_path: Path | None = None) -> FastAPI:
                     detail="history items must include role (user|assistant) and string content.",
                 )
 
-        board = load_board_for_user(resolved_db_path, username)
+        board = load_board_for_user(resolved_db_path, username, board_id)
         if board is None:
-            raise HTTPException(status_code=404, detail="Board not found for user.")
+            raise HTTPException(status_code=404, detail="Board not found.")
 
         api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
         if not api_key:
@@ -103,7 +156,7 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-        if operations and not save_board_for_user(resolved_db_path, username, updated_board):
+        if operations and not save_board_for_user(resolved_db_path, username, updated_board, board_id):
             raise HTTPException(status_code=404, detail="Board not found for user.")
 
         return {
@@ -113,28 +166,13 @@ def create_app(db_path: Path | None = None) -> FastAPI:
         }
 
     frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "out"
-
     if frontend_dir.exists():
         app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
     else:
 
         @app.get("/", response_class=HTMLResponse)
         def index() -> str:
-            return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PM MVP Backend</title>
-  </head>
-  <body>
-    <main>
-      <h1>Frontend assets not built yet</h1>
-      <p>Build frontend export to serve Kanban board at /.</p>
-    </main>
-  </body>
-</html>
-"""
+            return "<html><body><h1>Frontend assets not built yet</h1></body></html>"
 
     return app
 

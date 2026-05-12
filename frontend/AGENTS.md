@@ -62,12 +62,13 @@ This document describes the current frontend implementation in `frontend/`.
 - AI sidebar can submit typed commands to backend AI endpoint (`POST /api/ai/board`).
 - Voice controls can capture transcript, preview command text, and resend recent command.
 - Changes persist across reload through backend persistence.
+- Multi-board support: board selector in header allows creating, switching, and deleting boards.
 
 ## Data Model (Current)
 
 - `Card`: `{ id, title, details }`
 - `Column`: `{ id, title, cardIds[] }`
-- `BoardData`: `{ columns[], cardsById }` shape represented as:
+- `BoardData`: `{ columns[], cards }` shape represented as:
   - `columns: Column[]`
   - `cards: Record<string, Card>`
 

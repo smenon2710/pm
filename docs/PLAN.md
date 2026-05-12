@@ -276,6 +276,37 @@ Goal: enable users to fully control the board with voice, including moving cards
 - Users can recover quickly from recognition or execution errors.
 - Existing board interaction modes remain stable.
 
+## Part 12: Multi-Board Support
+
+### Checklist
+- [x] Update database schema to support multiple boards per user (remove UNIQUE constraint from user_id)
+- [x] Add database migration for existing single-board databases
+- [x] Add new API endpoints:
+  - `GET /api/boards` - list all boards for user
+  - `POST /api/boards` - create new board
+  - `DELETE /api/boards/{board_id}` - delete board (prevents deleting last board)
+  - `PUT /api/boards/{board_id}` - rename board
+- [x] Update existing `/api/board` endpoints to accept optional `board_id` parameter
+- [x] Add frontend board selector UI in header with:
+  - Dropdown to switch between boards
+  - "New" button to create boards
+  - "Delete" button when multiple boards exist
+- [x] New boards created with 3 empty columns (To Do, In Progress, Done)
+- [x] Default seeded board retains sample data
+
+### Tests
+- [x] Backend tests for new board CRUD endpoints
+- [x] Backend tests for board_id parameter on existing endpoints
+- [x] Backend test for delete-last-board protection
+- [x] Frontend unit tests pass
+- [x] Integration tests for board switching and independent state
+
+### Success Criteria
+- Users can create multiple independent boards
+- Switching between boards loads correct board data
+- Each board maintains its own state independently
+- Cannot delete the last remaining board
+
 ## Phase Gates
 
 - Gate A (required): User approval after Part 1 documentation. (completed)
@@ -291,26 +322,31 @@ Goal: enable users to fully control the board with voice, including moving cards
 - Frontend e2e: `npm run test:e2e` (from `frontend/`)
 - Backend unit/integration: `pytest` (from `backend/`, once created)
 
-## Implemented Design Decisions (Through Part 11C)
+## Implemented Design Decisions (Through Part 12)
 
 - Backend startup uses FastAPI lifespan to initialize SQLite automatically at `data/pm.db` (override supported via `PM_DB_PATH`).
 - DB seeding guarantees default `user` and one seeded board row when missing.
 - Board storage uses full JSON payload replacement (`board_json`) with validation on every update.
-- Board API surface is intentionally minimal for MVP:
-  - `GET /api/board?username=user`
-  - `PUT /api/board` with `{ username, board }`
+- Board API surface:
+  - `GET /api/board?username=user[&board_id=N]` - fetch board (optionally by ID)
+  - `PUT /api/board` with `{ username, board[, board_id] }` - save board (optionally by ID)
+  - `GET /api/boards?username=user` - list all boards
+  - `POST /api/boards` with `{ username, title }` - create new board
+  - `DELETE /api/boards/{board_id}?username=user` - delete board
+  - `PUT /api/boards/{board_id}?username=user` with `{ title }` - rename board
 - OpenRouter connectivity is implemented in backend:
   - `GET /api/ai/smoke` for basic connectivity smoke checks (`2+2`)
-  - `POST /api/ai/board` for structured AI board operations
+  - `POST /api/ai/board` for structured AI board operations (create_card, update_card, move_card, delete_card)
 - Start scripts pass environment variables from `.env` into Docker container when present.
 - Frontend auth remains hardcoded (`user`/`password`) with local session flag (`pm-authenticated`).
 - Frontend board lifecycle:
-  - load board from backend after login
-  - persist board on edits
+  - load boards list from backend after login
+  - load selected board from backend after boards loaded
+  - persist board on edits with board_id
   - show lightweight loading/sync-error badges
 - Frontend AI chat sidebar:
   - keeps session-local conversation history
-  - submits user messages to `/api/ai/board`
+  - submits user messages to `/api/ai/board` with board_id
   - applies returned board updates immediately
   - surfaces backend error details in the UI
 - Frontend voice command layer:
@@ -318,6 +354,11 @@ Goal: enable users to fully control the board with voice, including moving cards
   - supports retry/clear/resend-last-command controls
   - shows command preview and "last applied" confirmation
   - includes accessibility status announcements for listening/error states
+- Frontend multi-board support:
+  - board selector in header (left side)
+  - dropdown shows all boards for user
+  - "New" button creates blank board with 3 columns
+  - "Delete" button removes current board (protected if last board)
 - Frontend and backend are built/run in one Docker image using multi-stage build:
   - Next.js static export served by FastAPI at `/`
   - backend APIs remain under `/api/*`

@@ -28,7 +28,7 @@ The model must return JSON only (no markdown fences) with this shape:
   "assistantMessage": "string",
   "operations": [
     {
-      "type": "create_card | update_card | move_card",
+      "type": "create_card | update_card | move_card | delete_card",
       "...": "operation-specific fields"
     }
   ]
@@ -45,6 +45,8 @@ Supported operations:
 3. `move_card`
    - Required fields: `cardId`, `fromColumnId`, `toColumnId`
    - Optional field: `position` (non-negative integer; append if omitted/invalid)
+4. `delete_card`
+   - Required fields: `cardId`
 
 If no board change is needed, return:
 

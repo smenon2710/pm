@@ -8,6 +8,12 @@ const AUTH_KEY = "pm-authenticated";
 const DEMO_USERNAME = "user";
 const DEMO_PASSWORD = "password";
 
+type BoardInfo = {
+  id: number;
+  title: string;
+  updated_at: string;
+};
+
 type ChatRole = "user" | "assistant";
 type ChatMessage = {
   role: ChatRole;
@@ -23,33 +29,30 @@ type SpeechRecognitionError =
   | "no-speech"
   | "language-not-supported";
 
-type SpeechRecognitionAlternativeLike = {
-  transcript: string;
-};
-
-type SpeechRecognitionResultLike = {
-  0: SpeechRecognitionAlternativeLike;
-  isFinal: boolean;
-  length: number;
-};
-
 type SpeechRecognitionEventLike = {
   resultIndex: number;
-  results: SpeechRecognitionResultLike[];
+  results: { 0: { transcript: string }; isFinal: boolean; length: number }[];
 };
 
 type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onerror: ((event: { error: SpeechRecognitionError }) => void) | null;
+  onresult: ((event: unknown) => void) | null;
+  onerror: ((event: unknown) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
 };
 
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+const VOICE_ERROR_MESSAGES: Partial<Record<SpeechRecognitionError, string>> = {
+  "not-allowed": "Microphone access denied. Allow access and try again.",
+  "service-not-allowed": "Microphone access denied. Allow access and try again.",
+  "no-speech": "No speech detected. Try again.",
+  "audio-capture": "No microphone available.",
+};
 
 export default function Home() {
   const [isAuthed, setIsAuthed] = useState(false);
@@ -60,6 +63,11 @@ export default function Home() {
   const [isBoardLoading, setIsBoardLoading] = useState(false);
   const [boardSyncError, setBoardSyncError] = useState("");
   const [isBoardReady, setIsBoardReady] = useState(false);
+  const [boards, setBoards] = useState<BoardInfo[]>([]);
+  const [currentBoardId, setCurrentBoardId] = useState<number | null>(null);
+  const [isBoardsLoading, setIsBoardsLoading] = useState(false);
+  const [newBoardTitle, setNewBoardTitle] = useState("");
+  const [showBoardForm, setShowBoardForm] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -77,6 +85,30 @@ export default function Home() {
   useEffect(() => {
     setIsAuthed(window.localStorage.getItem(AUTH_KEY) === "true");
   }, []);
+
+  const loadBoards = async () => {
+    setIsBoardsLoading(true);
+    try {
+      const response = await fetch(`/api/boards?username=${DEMO_USERNAME}`);
+      if (response.ok) {
+        const data = (await response.json()) as { boards: BoardInfo[] };
+        setBoards(data.boards);
+        if (data.boards.length > 0 && !currentBoardId) {
+          setCurrentBoardId(data.boards[0].id);
+        }
+      }
+    } catch {
+      // Ignore errors
+    } finally {
+      setIsBoardsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthed) {
+      void loadBoards();
+    }
+  }, [isAuthed]);
 
   useEffect(() => {
     const speechWindow = window as Window & {
@@ -97,8 +129,8 @@ export default function Home() {
     recognition.onresult = (event: unknown) => {
       const speechEvent = event as SpeechRecognitionEventLike;
       let transcript = "";
-      for (let index = speechEvent.resultIndex; index < speechEvent.results.length; index += 1) {
-        transcript += speechEvent.results[index][0].transcript;
+      for (let i = speechEvent.resultIndex; i < speechEvent.results.length; i += 1) {
+        transcript += speechEvent.results[i][0].transcript;
       }
       const nextValue = transcript.trim();
       setChatInput(nextValue);
@@ -110,25 +142,11 @@ export default function Home() {
       setVoiceError("");
     };
     recognition.onerror = (event: unknown) => {
-      const speechError = event as { error: SpeechRecognitionError };
+      const code = (event as { error: SpeechRecognitionError }).error;
+      const message = VOICE_ERROR_MESSAGES[code] ?? "Voice recognition failed. Please try again.";
       setIsListening(false);
-      if (speechError.error === "not-allowed" || speechError.error === "service-not-allowed") {
-        setVoiceError("Microphone access denied. Allow access and try again.");
-        setVoiceStatusMessage("Microphone access denied.");
-        return;
-      }
-      if (speechError.error === "no-speech") {
-        setVoiceError("No speech detected. Try again.");
-        setVoiceStatusMessage("No speech detected.");
-        return;
-      }
-      if (speechError.error === "audio-capture") {
-        setVoiceError("No microphone available.");
-        setVoiceStatusMessage("No microphone available.");
-        return;
-      }
-      setVoiceError("Voice recognition failed. Please try again.");
-      setVoiceStatusMessage("Voice recognition failed.");
+      setVoiceError(message);
+      setVoiceStatusMessage(message);
     };
     recognition.onend = () => {
       setIsListening(false);
@@ -170,11 +188,14 @@ export default function Home() {
     setLastVoiceCommand("");
     setVoiceStatusMessage("");
     setLastAppliedSummary("");
+    setBoards([]);
+    setCurrentBoardId(null);
+    setShowBoardForm(false);
     recognitionRef.current?.stop();
   };
 
   useEffect(() => {
-    if (!isAuthed) {
+    if (!isAuthed || !currentBoardId) {
       return;
     }
     let cancelled = false;
@@ -183,7 +204,7 @@ export default function Home() {
       setBoardSyncError("");
       setIsBoardReady(false);
       try {
-        const response = await fetch(`/api/board?username=${DEMO_USERNAME}`);
+        const response = await fetch(`/api/board?username=${DEMO_USERNAME}&board_id=${currentBoardId}`);
         if (!response.ok) {
           throw new Error(`Failed to load board: ${response.status}`);
         }
@@ -211,7 +232,7 @@ export default function Home() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthed]);
+  }, [isAuthed, currentBoardId]);
 
   useEffect(() => {
     if (!isAuthed || !isBoardReady || isBoardLoading) {
@@ -226,7 +247,7 @@ export default function Home() {
         const response = await fetch("/api/board", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: DEMO_USERNAME, board }),
+          body: JSON.stringify({ username: DEMO_USERNAME, board, board_id: currentBoardId }),
         });
         if (!response.ok) {
           throw new Error(`Failed to save board: ${response.status}`);
@@ -237,7 +258,7 @@ export default function Home() {
       }
     };
     void persistBoard();
-  }, [board, isAuthed, isBoardReady, isBoardLoading]);
+  }, [board, isAuthed, isBoardReady, isBoardLoading, currentBoardId]);
 
   const sendChatMessage = async (message: string) => {
     if (isListening) {
@@ -261,6 +282,7 @@ export default function Home() {
           username: DEMO_USERNAME,
           message,
           history: nextHistory,
+          board_id: currentBoardId,
         }),
       });
       if (!response.ok) {
@@ -349,6 +371,52 @@ export default function Home() {
     await sendChatMessage(lastVoiceCommand);
   };
 
+  const createBoard = async () => {
+    if (!newBoardTitle.trim()) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/boards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: DEMO_USERNAME, title: newBoardTitle.trim() }),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { id: number; title: string; board: BoardData };
+        setBoards((prev) => [...prev, { id: data.id, title: data.title, updated_at: new Date().toISOString() }]);
+        setCurrentBoardId(data.id);
+        skipNextSave.current = true;
+        setBoard(data.board);
+        setIsBoardReady(true);
+        setNewBoardTitle("");
+        setShowBoardForm(false);
+      }
+    } catch {
+      // Ignore errors
+    }
+  };
+
+  const switchBoard = (boardId: number) => {
+    setCurrentBoardId(boardId);
+  };
+
+  const deleteBoard = async (boardId: number) => {
+    try {
+      const response = await fetch(`/api/boards/${boardId}?username=${DEMO_USERNAME}`, {
+        method: "DELETE",
+      });
+      if (response.ok) {
+        const newBoards = boards.filter((b) => b.id !== boardId);
+        setBoards(newBoards);
+        if (newBoards.length > 0) {
+          setCurrentBoardId(newBoards[0].id);
+        }
+      }
+    } catch {
+      // Ignore errors
+    }
+  };
+
   if (!isAuthed) {
     return (
       <main className="mx-auto flex min-h-screen max-w-lg items-center px-6">
@@ -416,6 +484,86 @@ export default function Home() {
           {boardSyncError}
         </div>
       ) : null}
+      <div className="fixed left-6 top-6 z-50 flex items-center gap-3 rounded-full border border-[var(--stroke)] bg-white/95 px-4 py-2 shadow-[var(--shadow)] backdrop-blur">
+        {isBoardsLoading ? (
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)]">
+            Loading...
+          </span>
+        ) : showBoardForm ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createBoard();
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              value={newBoardTitle}
+              onChange={(e) => setNewBoardTitle(e.target.value)}
+              placeholder="Board name"
+              className="w-32 rounded-lg border border-[var(--stroke)] px-2 py-1 text-xs text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+              aria-label="New board name"
+            />
+            <button
+              type="submit"
+              className="text-xs font-semibold text-[var(--primary-blue)]"
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowBoardForm(false);
+                setNewBoardTitle("");
+              }}
+              className="text-xs font-semibold text-[var(--gray-text)]"
+            >
+              Cancel
+            </button>
+          </form>
+        ) : (
+          <>
+            <label htmlFor="board-select" className="text-xs font-semibold uppercase tracking-wide text-[var(--gray-text)]">
+              Board:
+            </label>
+            <select
+              id="board-select"
+              value={currentBoardId ?? ""}
+              onChange={(e) => switchBoard(Number(e.target.value))}
+              className="rounded-lg border border-[var(--stroke)] px-2 py-1 text-xs font-semibold text-[var(--navy-dark)] outline-none focus:border-[var(--primary-blue)]"
+              aria-label="Select board"
+            >
+              {(boards ?? []).map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowBoardForm(true)}
+              className="text-xs font-semibold text-[var(--primary-blue)]"
+              aria-label="Create new board"
+            >
+              + New
+            </button>
+            {(boards ?? []).length > 1 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (currentBoardId) {
+                    void deleteBoard(currentBoardId);
+                  }
+                }}
+                className="text-xs font-semibold text-[var(--secondary-purple)]"
+                aria-label="Delete current board"
+              >
+                Delete
+              </button>
+            ) : null}
+          </>
+        )}
+      </div>
       <button
         type="button"
         onClick={handleLogout}
