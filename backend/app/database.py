@@ -34,14 +34,7 @@ def init_db(db_path: Path) -> None:
             )
             """
         )
-        try:
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_boards_user_id ON boards(user_id)")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS boards_user_id ON boards(user_id)")
-        except sqlite3.OperationalError:
-            pass
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_boards_user_id ON boards(user_id)")
         conn.execute("DROP INDEX IF EXISTS boards_user_id")
         conn.execute(
             """

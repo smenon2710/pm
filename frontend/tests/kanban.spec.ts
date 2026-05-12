@@ -87,16 +87,32 @@ const setupBoardApiMock = async (page: Page) => {
 
   await page.route("**/api/board**", async (route) => {
     const request = route.request();
-    if (request.method() === "GET") {
-      await fulfillJson(route, { username: "user", board: boardStore });
+    const pathname = new URL(request.url()).pathname;
+
+    if (pathname === "/api/boards") {
+      if (request.method() === "GET") {
+        await fulfillJson(route, {
+          boards: [{ id: 1, title: "My Board", updated_at: new Date().toISOString() }],
+        });
+        return;
+      }
+      await route.fallback();
       return;
     }
-    if (request.method() === "PUT") {
-      const payload = request.postDataJSON() as { board: BoardStore };
-      boardStore = payload.board;
-      await fulfillJson(route, { ok: true });
-      return;
+
+    if (pathname === "/api/board") {
+      if (request.method() === "GET") {
+        await fulfillJson(route, { username: "user", board: boardStore });
+        return;
+      }
+      if (request.method() === "PUT") {
+        const payload = request.postDataJSON() as { board: BoardStore };
+        boardStore = payload.board;
+        await fulfillJson(route, { ok: true });
+        return;
+      }
     }
+
     await route.fallback();
   });
 

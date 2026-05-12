@@ -48,10 +48,14 @@ describe("Home auth gate", () => {
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (url.includes("/api/board") && method === "GET") {
+      const pathname = new URL(url, "http://localhost").pathname;
+      if (pathname === "/api/boards" && method === "GET") {
+        return makeResponse({ boards: [{ id: 1, title: "My Board", updated_at: new Date().toISOString() }] });
+      }
+      if (pathname === "/api/board" && method === "GET") {
         return makeResponse({ username: "user", board: boardStore });
       }
-      if (url.includes("/api/board") && method === "PUT") {
+      if (pathname === "/api/board" && method === "PUT") {
         const payload = JSON.parse(String(init?.body)) as {
           username: string;
           board: BoardData;
@@ -59,7 +63,7 @@ describe("Home auth gate", () => {
         boardStore = payload.board;
         return makeResponse({ ok: true });
       }
-      if (url.includes("/api/ai/board") && method === "POST") {
+      if (pathname === "/api/ai/board" && method === "POST") {
         const payload = JSON.parse(String(init?.body)) as {
           message: string;
         };
@@ -186,13 +190,17 @@ describe("Home auth gate", () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
-      if (url.includes("/api/board") && method === "GET") {
+      const pathname = new URL(url, "http://localhost").pathname;
+      if (pathname === "/api/boards" && method === "GET") {
+        return makeResponse({ boards: [{ id: 1, title: "My Board", updated_at: new Date().toISOString() }] });
+      }
+      if (pathname === "/api/board" && method === "GET") {
         return makeResponse({ username: "user", board: boardStore });
       }
-      if (url.includes("/api/ai/board") && method === "POST") {
+      if (pathname === "/api/ai/board" && method === "POST") {
         return makeResponse({ detail: "Model response was not valid JSON." }, false);
       }
-      if (url.includes("/api/board") && method === "PUT") {
+      if (pathname === "/api/board" && method === "PUT") {
         return makeResponse({ ok: true });
       }
       return makeResponse({ status: "ok" });

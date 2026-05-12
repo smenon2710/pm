@@ -307,6 +307,34 @@ Goal: enable users to fully control the board with voice, including moving cards
 - Each board maintains its own state independently
 - Cannot delete the last remaining board
 
+## Part 13: Bug Fixes, Board Rename UI, and Layout Redesign
+
+### Checklist
+- [x] Fix AI double-message bug: `POST /api/ai/board` was sending the current user message in both `history` and `message` fields; history now excludes the current turn
+- [x] Fix `init_db` migration noise: removed the redundant try/except create-unique-index → drop pattern; replaced with `CREATE INDEX IF NOT EXISTS` + `DROP INDEX IF EXISTS`
+- [x] Add board rename UI: inline rename form in nav bar submits to `PUT /api/boards/{id}`
+- [x] Add error handling for `createBoard` and `deleteBoard`: both now surface errors via `boardActionError` state in nav bar instead of silently swallowing them
+- [x] Fix `loadBoards` defensive guard: `setBoards` only called when API returns a valid array; `boards.find()` guarded with `?? []`
+- [x] Fix e2e test mock: `setupBoardApiMock` now distinguishes `/api/boards` from `/api/board` using `URL.pathname`; returns correct shapes for each endpoint
+- [x] Fix unit test mock: same pathname-based dispatch; `fetchMock` and `mockImplementation` both updated
+- [x] Remove large decorative header from `KanbanBoard`: columns now render immediately below the nav bar with `min-h-[calc(100vh-130px)]`
+- [x] Replace floating pills with a single fixed dark-navy nav bar: board selector, rename, new, delete, status indicators, AI toggle, logout
+- [x] Make AI sidebar a collapsible fixed-width panel (open by default) toggled via nav bar button
+- [x] Dynamic column grid: `repeat(N, 1fr)` replaces hardcoded `lg:grid-cols-5`
+- [x] Polished card design: cursor-grab affordance, hover-reveal delete button, tighter spacing
+- [x] Update `KanbanCardPreview` to match new card style
+
+### Tests
+- [x] All 17 frontend unit tests pass
+- [x] All 9 frontend e2e tests pass
+- [x] All 20 backend tests pass
+
+### Success Criteria
+- All pre-existing tests pass without modification to test logic (only test mocks updated)
+- No TypeScript or build errors
+- Board columns occupy maximum available vertical space
+- All bug fixes verified by existing test suite
+
 ## Phase Gates
 
 - Gate A (required): User approval after Part 1 documentation. (completed)
@@ -322,7 +350,7 @@ Goal: enable users to fully control the board with voice, including moving cards
 - Frontend e2e: `npm run test:e2e` (from `frontend/`)
 - Backend unit/integration: `pytest` (from `backend/`, once created)
 
-## Implemented Design Decisions (Through Part 12)
+## Implemented Design Decisions (Through Part 13)
 
 - Backend startup uses FastAPI lifespan to initialize SQLite automatically at `data/pm.db` (override supported via `PM_DB_PATH`).
 - DB seeding guarantees default `user` and one seeded board row when missing.
@@ -337,16 +365,24 @@ Goal: enable users to fully control the board with voice, including moving cards
 - OpenRouter connectivity is implemented in backend:
   - `GET /api/ai/smoke` for basic connectivity smoke checks (`2+2`)
   - `POST /api/ai/board` for structured AI board operations (create_card, update_card, move_card, delete_card)
+- AI board endpoint sends conversation history excluding the current user message to avoid duplicate context in the model prompt.
 - Start scripts pass environment variables from `.env` into Docker container when present.
 - Frontend auth remains hardcoded (`user`/`password`) with local session flag (`pm-authenticated`).
+- Frontend layout: fixed dark-navy nav bar contains all board management controls, status indicators, AI panel toggle, and logout; no floating pills.
 - Frontend board lifecycle:
-  - load boards list from backend after login
-  - load selected board from backend after boards loaded
-  - persist board on edits with board_id
-  - show lightweight loading/sync-error badges
+  - load boards list from backend after login (`GET /api/boards`)
+  - load selected board after boards list resolves (`GET /api/board?board_id=N`)
+  - persist board on any state change (guarded by `isBoardReady` and `skipNextSave` ref)
+  - sync errors shown in nav bar; `boards` state guarded against undefined API responses
+- Frontend multi-board support:
+  - board selector dropdown and Rename/+ New/Delete buttons in nav bar
+  - inline rename form submits to `PUT /api/boards/{id}`
+  - create/delete errors surfaced as `boardActionError` in nav bar
+  - "Delete" button hidden when only one board remains
 - Frontend AI chat sidebar:
+  - togglable panel (open by default) via "AI Chat" button in nav bar
   - keeps session-local conversation history
-  - submits user messages to `/api/ai/board` with board_id
+  - submits user messages to `/api/ai/board` with board_id and prior history only (not current message)
   - applies returned board updates immediately
   - surfaces backend error details in the UI
 - Frontend voice command layer:
@@ -354,11 +390,12 @@ Goal: enable users to fully control the board with voice, including moving cards
   - supports retry/clear/resend-last-command controls
   - shows command preview and "last applied" confirmation
   - includes accessibility status announcements for listening/error states
-- Frontend multi-board support:
-  - board selector in header (left side)
-  - dropdown shows all boards for user
-  - "New" button creates blank board with 3 columns
-  - "Delete" button removes current board (protected if last board)
+- Frontend Kanban layout:
+  - `KanbanBoard` renders only the DnD context and column grid (no internal header section)
+  - column grid is dynamic: `repeat(N, 1fr)` based on actual column count
+  - columns use `min-h-[calc(100vh-130px)]` to fill available vertical space
+  - card delete button is hidden until hover to reduce visual noise
+  - drag overlay uses a distinct blue border to signal active drag
 - Frontend and backend are built/run in one Docker image using multi-stage build:
   - Next.js static export served by FastAPI at `/`
   - backend APIs remain under `/api/*`
